@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service-broker
+spec:
+  selector:
+    app: my-service-broker
+  ports:
+  - protocol: TCP
+    port: 9090         # The port you'll expose
+    targetPort: 3000   # The container port the app listens on
+  type: NodePort
+

@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-service-broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-service-broker
+  template:
+    metadata:
+      labels:
+        app: my-service-broker
+    spec:
+      containers:
+      - name: broker
+        image: cfcommunity/worlds-simplest-service-broker
+        ports:
+        - containerPort: 3000
+        env:
+        - name: BASE_GUID
+          value: "static-guid-1234"  # you can generate and hardcode or use Kubernetes to generate a UUID
+        - name: CREDENTIALS
+          value: '{"port": "4000", "host": "1.2.3.4"}'
+        - name: SERVICE_NAME
+          value: "myservice"
+        - name: SERVICE_PLAN_NAME
+          value: "shared"
+        - name: TAGS
+          value: "simple,shared"
+        - name: AUTH_USER
+          value: "broker"
+        - name: AUTH_PASSWORD
+          value: "broker"
+
