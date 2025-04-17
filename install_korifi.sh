@@ -3,6 +3,10 @@
 ## Installation KinD (Kubernetes in Docker)
 ##
 
+## Includes
+scriptpath="$(dirname "${BASH_SOURCE[0]}")"
+. $scriptpath/utils.sh
+
 
 
 ##
@@ -18,52 +22,8 @@ GO_PACKAGE="go${GO_VERSION}.linux-amd64.tar.gz"
 #read -p "Username: " dockerhub_username
 #read -s -p "Password: " dockerhub_password
 
-#
-# switch to sudo if not done yet
-#
-if [[ "$(id -u)" -eq 0 ]];then
-  echo "Already running as root"
-  SUDOCMD=""
-else
-  # let's check whether user can sudo (and cache the password for further sudo commands in the script)
-  echo "Enter sudo password to check sudo permissions"
-  sudo echo "sudo ok"
-  echo "Running as '$(whoami)', but capable of sudo to root"
-  SUDOCMD='sudo env "PATH=$PATH"'
 
-  echo "Recommended is to run as root (sudo $). Running as $(whoami) has turned out to cause issues."
-  echo "Press enter to continue or CTRL-C to exit"
-  read
-fi
-
-
-
-##
-## Functions
-##
-function cleanup_file() {
-  filename="$1"
-  if [[ -f "$filename" ]]; then
-    $SUDOCMD rm -rf "$filename"
-    rv=$?
-    if [[ $rv -ne 0 ]]; then
-      exit $rv
-    fi
-  fi
-}
-
-
-function assert() {
-  $@
-  result=$?
-  if [[ "$result" -eq "0" ]] ; then
-    echo "Command '$*' succeeded"
-  else
-    echo "Command '$*' FAILED!"
-    exit $result
-  fi
-}
-
+strongly_advice_root
 
 
 ##

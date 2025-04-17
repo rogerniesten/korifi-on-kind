@@ -1,26 +1,14 @@
 #
-# This script is supposed to install mysql from a korifi marketplace
+# This script is supposed to install a service (instance) from a korifi marketplace
 #
 
+## Includes
+scriptpath="$(dirname "${BASH_SOURCE[0]}")"
+. $scriptpath/utils.sh
 
 
-#
-# switch to sudo if not done yet
-#
-if [[ "$(id -u)" -eq 0 ]];then
-  echo "Already running as root"
-  SUDOCMD=""
-else
-  # let's check whether user can sudo (and cache the password for further sudo commands in the script)
-  echo "Enter sudo password to check sudo permissions"
-  sudo echo "sudo ok"
-  echo "Running as '$(whoami)', but capable of sudo to root"
-  SUDOCMD='sudo env "PATH=$PATH"'
+strongly_advice_root
 
-  echo "Recommended is to run as root (sudo $). Running as $(whoami) has turned out to cause issues."
-  echo "Press enter to continue or CTRL-C to exit"
-  read
-fi
 
 
 ##
@@ -29,33 +17,6 @@ fi
 SERVICE_NAME=myservice
 
 
-
-
-##
-## Functions
-##
-function cleanup_file() {
-  filename="$1"
-  if [[ -f "$filename" ]]; then
-    $SUDOCMD rm -rf "$filename"
-    rv=$?
-    if [[ $rv -ne 0 ]]; then
-      exit $rv
-    fi
-  fi
-}
-
-
-function assert() {
-  $@
-  result=$?
-  if [[ "$result" -eq "0" ]] ; then
-    echo "Command '$*' succeeded"
-  else
-    echo "Command '$*' FAILED!"
-    exit $result
-  fi
-}
 
 
 ##
@@ -98,9 +59,9 @@ fi
 echo " - remove servicebroker"
 cf delete-service-broker mybroker -f
 echo " - remove broker-service"
-kubectl delete -f ./broker-service.yaml --ignore-not-found=true
+kubectl delete -f $scriptpath/broker-service.yaml --ignore-not-found=true
 echo " - remove broker-deployment"
-kubectl delete -f ./broker-deployment.yaml --ignore-not-found=true
+kubectl delete -f $scriptpath/broker-deployment.yaml --ignore-not-found=true
 echo ""
 
 ## WORKAROUND
@@ -160,6 +121,19 @@ echo ""
 #	- Open Service Broker for Azure / GCP			Includes MySQL support, works with Kubernetes.	         	https://github.com/Azure/open-service-broker-azure
 #	- OSB-Brokerpak from Terraform 				More advanced — supports MySQL via Terraform infrastructure.	https://github.com/cloudfoundry-incubator/terraform-provider-servicebroker
 
+## Includes
+scriptpath="$(dirname "${BASH_SOURCE[0]}")"
+. $scriptpath/utils.sh
+
+
+
+##
+## Config
+##
+
+
+
+strongly_advice_root
 
 
 
@@ -208,8 +182,8 @@ CONTAINER_NAME="my-service-broker"
 
 
 # deploy the service-broker to kubernetes
-kubectl apply -f ./broker-deployment.yaml
-kubectl apply -f ./broker-service.yaml
+kubectl apply -f $scriptpath/broker-deployment.yaml
+kubectl apply -f $scriptpath/broker-service.yaml
 
 # wait until the pods are running
 echo "Waiting for pod to be ready..."
@@ -335,9 +309,9 @@ echo "Show list of service instances:"
 cf services
 echo ""
 
-echo "Show info of myservice-instance"
-cf service ${SERVICE_NAME}-instance
-echo ""
+#echo "Show info of myservice-instance"
+#cf service ${SERVICE_NAME}-instance
+#echo ""
 
 
 echo "Reaching this point without errors means that we have proofed that creating service instances via a service broker works in korifi"
@@ -352,6 +326,9 @@ exit
 ## Remaining code are attempts that didn't work or ran into too many issues to continue
 ## These are left here for reference and archive
 ##
+
+
+
 
 
 ##
@@ -424,18 +401,15 @@ exit 0
 
 ##
 ## MySQL via OSB for Azure
-B
 ##
 
 # Clone the repository
 git clone https://github.com/Azure/open-service-broker-azure.git
 cd open-service-broker-azure
-B
 
 
 
 ## Corrections:
-B
 
 # Issue: 
 #	helm dependency build causes:
