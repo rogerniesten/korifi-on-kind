@@ -44,7 +44,7 @@ function cleanup_file() {
 
 
 function assert() {
-  $@
+  bash -c "$*"
   result=$?
   if [[ "$result" -eq "0" ]] ; then
     echo "Command '$*' succeeded"
