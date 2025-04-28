@@ -1,0 +1,15 @@
+# Ignore editor swap/backup files
+*.swp
+*.swo
+*~
+
+# Ignore logs (if any are generated)
+*.log
+
+# Ignore MacOS or Windows system files
+.DS_Store
+Thumbs.db
+
+# Ignore tmp directory (generated during script runs)
+tmp/
+
