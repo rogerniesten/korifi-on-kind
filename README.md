@@ -1,6 +1,14 @@
 # korifi-on-kind
 Investigation on korifi on kind, including marketplace, etc.
 
+## Some useful sources:
+- https://tutorials.cloudfoundry.org/korifi/overview/
+- https://docs.cloudfoundry.org/adminguide/index.html
+- https://bosh.io/docs/
+- https://tutorials.cloudfoundry.org/korifi/cf/
+- https://v3-apidocs.cloudfoundry.org/version/3.191.0/index.html
+- 
+
 ## Prerequisits
 The examples below are all based on a ubuntu server, so you need an ubuntu server to run these scripts on.
 
@@ -65,7 +73,14 @@ Due to the fact that it is a dummy service, no actions can be performed to show 
 
 Sources:
 - https://github.com/cloudfoundry-community/worlds-simplest-service-broker
-- 
+- https://github.com/openservicebrokerapi/servicebroker
+- https://github.com/kubernetes-retired/service-catalog
+- https://www.youtube.com/watch?v=bm59dpmMhAk
+- https://www.cloudfoundry.org/technology/open-service-broker-api/
+- https://docs.cloudfoundry.org/services/examples.html
+- https://github.com/openservicebrokerapi/servicebroker/blob/master/gettingStarted.md
+- https://www.openservicebrokerapi.org/
+
 
 ## How to add users that are limited to a specific org 
 In order to give each department its own little corner in the Korifi cluster, users can be limited to access only one organisation in Korifi. Cloud Foundry has implemented User Account and Authentication (UAA) which acts as an OAuth2 provider. Korifi uses a different approach and delegates this responsibility to the Kubernetes API server and Kubernetes native RBAC. See [here](https://github.com/cloudfoundry/korifi/blob/main/docs/user-authentication-overview.md) for more details.
@@ -115,10 +130,22 @@ Open items:
 - kubectl create rolebinding must be removed from function create_rbac as it seems to be superfluous. Test before commit as it is proposed by ChatGPT!!
 - Demo more actions in restricted orgs
 
+Sources:
+- https://docs.cloudfoundry.org/adminguide/cli-user-management.html (not implemented for korifi!)
+- https://docs.cloudfoundry.org/uaa/#:~:text=User%20Account%20and%20Authentication%20(UAA,standards%20for%20authentication%20and%20authorization.
+- https://github.com/cloudfoundry/korifi/blob/main/docs/using-kubernetes-api-to-create-cf-resources.md
+- https://www.youtube.com/watch?v=EUGfQS2Fu78
+- https://github.com/cloudfoundry/korifi/blob/main/docs/user-authentication-overview.md
+
+
 ## Setup network firewall within the korifi cluster
 
 
 ## Create a custom service using buildbacks (kpack)
 
+
+
+sources:
+- https://tutorials.cloudfoundry.org/cf4devs/getting-started/first-push/
 
 
