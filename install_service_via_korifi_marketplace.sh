@@ -139,7 +139,7 @@ strongly_advice_root
 
 
 # Prepare folder for git repositories
-#mkdir /home/${SUDO_USER}/git 2>/dev/null
+mkdir -p /home/${SUDO_USER}/git 2>/dev/null
 cd /home/${SUDO_USER}/git/korifi-on-kind
 
 

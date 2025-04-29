@@ -9,7 +9,7 @@ scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
 . $scriptpath/utils.sh
 
 tmp="$scriptpath/tmp"
-mkdir "$tmp"
+mkdir -p "$tmp"
 
 ##
 ## Config
