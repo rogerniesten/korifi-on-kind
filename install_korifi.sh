@@ -41,6 +41,16 @@ $SUDOCMD apt install -y jq docker.io curl
 assert jq --version
 
 
+## Install yq (jq alike tool for yaml files)
+echo "Installing yq..."
+$SUDOCMD snap install yq
+echo "verify result:"
+assert yq --version
+# expected: version of of yq
+echo "...done"
+echo ""
+
+
 ## Install Go
 # based on: https://go.dev/doc/install
 echo "Installing Go..."
