@@ -1,10 +1,11 @@
+#! /bin/bash
 #
 # This script is supposed to install a service (instance) from a korifi marketplace
 #
 
 ## Includes
 scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. $scriptpath/utils.sh
+. "$scriptpath/utils.sh"
 
 
 strongly_advice_root
@@ -35,7 +36,7 @@ kubectl get pods -n korifi
 CTRLPLANE_NAME='korifi-control-plane'
 echo "Korifi-Control-Plane"
 echo "- name : $CTRLPLANE_NAME"
-CTRLPLANE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $CTRLPLANE_NAME)
+CTRLPLANE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CTRLPLANE_NAME")
 echo "- IP   : $CTRLPLANE_IP"
 
 assert "test '$CTRLPLANE_IP' != ''"
@@ -59,9 +60,9 @@ fi
 echo " - remove servicebroker"
 cf delete-service-broker mybroker -f
 echo " - remove broker-service"
-kubectl delete -f $scriptpath/broker-service.yaml --ignore-not-found=true
+kubectl delete -f "$scriptpath/broker-service.yaml" --ignore-not-found=true
 echo " - remove broker-deployment"
-kubectl delete -f $scriptpath/broker-deployment.yaml --ignore-not-found=true
+kubectl delete -f "$scriptpath/broker-deployment.yaml" --ignore-not-found=true
 echo ""
 
 ## WORKAROUND
@@ -78,11 +79,11 @@ echo "$ORPHAN_SVCS" | jq -c
 # Now loop over all orphans and remove them
 echo "$ORPHAN_SVCS" | jq -c | while read -r svc; do
   #echo "Processing: $svc"
-  SERVICE_NAME=$(echo "$svc" | jq -r '.name')
+  ORPHAN_NAME=$(echo "$svc" | jq -r '.name')
   BROKER_GUID=$(echo "$svc" | jq -r '.broker_guid')
   BROKER_NAME=$(echo "$BROKER_GUIDS" | jq -r --arg guid "$BROKER_GUID" '.[] | select(.guid == $guid) | .name')
-  echo "   -> Purging orphaned service offering: $SERVICE_NAME (broker guid: $BROKER_GUID, broker name: $BROKER_NAME)"
-  cf purge-service-offering "$SERVICE_NAME" -b "$BROKER_NAME" -f
+  echo "   -> Purging orphaned service offering: $ORPHAN_NAME (broker guid: $BROKER_GUID, broker name: $BROKER_NAME)"
+  cf purge-service-offering "$ORPHAN_NAME" -b "$BROKER_NAME" -f
 done
 
 echo " - waiting for completion"
@@ -123,7 +124,7 @@ echo ""
 
 ## Includes
 scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. $scriptpath/utils.sh
+. "$scriptpath/utils.sh"
 
 
 
@@ -139,8 +140,8 @@ strongly_advice_root
 
 
 # Prepare folder for git repositories
-mkdir -p /home/${SUDO_USER}/git 2>/dev/null
-cd /home/${SUDO_USER}/git/korifi-on-kind
+mkdir -p "/home/%scriptpath${SUDO_USER}/git" 2>/dev/null
+cd "/home/${SUDO_USER}/git/korifi-on-kind" || exit 99
 
 
 
@@ -182,11 +183,12 @@ CONTAINER_NAME="my-service-broker"
 
 
 # deploy the service-broker to kubernetes
-kubectl apply -f $scriptpath/broker-deployment.yaml
-kubectl apply -f $scriptpath/broker-service.yaml
+kubectl apply -f "$scriptpath/broker-deployment.yaml"
+kubectl apply -f "$scriptpath/broker-service.yaml"
 
 # wait until the pods are running
 echo "Waiting for pod to be ready..."
+# shellcheck disable=SC2090	# it's a command, so all escaping is on purpose here
 $SUDOCMD kubectl wait --for=create pods -l app=my-service-broker --timeout=300s
 echo "All pods are ready. Proceeding with next steps..."
 
@@ -225,7 +227,7 @@ echo "All pods are ready. Proceeding with next steps..."
 # Get the Name and IP of the broker pod
 BROKER_NAME=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" | grep "^${CONTAINER_NAME}")
 echo "Broker-name : $BROKER_NAME"
-BROKER_IP=$(kubectl get pod ${BROKER_NAME} -o jsonpath='{.status.podIP}')
+BROKER_IP=$(kubectl get pod "${BROKER_NAME}" -o jsonpath='{.status.podIP}')
 
 # WORKAROUND:
 # Apparently the pod is NOT given an IP immediately after the pod is created.
@@ -244,7 +246,7 @@ while [[ "$BROKER_IP" == "" ]];do
     sleep 1
   done
   echo "]"
-  BROKER_IP=$(kubectl get pod ${BROKER_NAME} -o jsonpath='{.status.podIP}')
+  BROKER_IP=$(kubectl get pod "${BROKER_NAME}" -o jsonpath='{.status.podIP}')
   x=$((x*2))
 done
 echo "Broker-IP   : $BROKER_IP"
@@ -255,7 +257,7 @@ echo ""
 # Note that IP and port are different! Internal K8s network
 BROKER_CATALOG_URL="http://${BROKER_IP}:3000/v2/catalog"
 echo "Try to reach the broker URL ($BROKER_CATALOG_URL) from witin a k8s pod"
-kubectl run curlpod --image=curlimages/curl -it --rm --restart=Never -- curl -s -u $BROKER_CATALOG_URL -H 'X-Broker-API-Version: 2.3' | sed -n '1p' | jq
+kubectl run curlpod --image=curlimages/curl -it --rm --restart=Never -- curl -s -u broker:broker "$BROKER_CATALOG_URL" -H 'X-Broker-API-Version: 2.3' | sed -n '1p' | jq
 # Expected: same result as mentioned above
 echo ""
 
@@ -264,7 +266,7 @@ echo ""
 # Create the service broker
 #
 echo "Create service broker 'mybroker'..."
-cf -v create-service-broker mybroker broker broker http://${BROKER_IP}:3000
+cf -v create-service-broker mybroker broker broker "http://${BROKER_IP}:3000"
 # Note that the IP and Port must be K8s (Korifi) Internal!!!
 echo "...done"
 echo ""
@@ -275,7 +277,7 @@ echo ""
 
 ## Add the service to the marketplace
 echo "Add service '$SERVICE_NAME' to the cf marketplace..."
-cf enable-service-access $SERVICE_NAME
+cf enable-service-access "$SERVICE_NAME"
 ## NOTE:
 #	First it didn't work:
 #	Enabling access to all plans of service offering myservice for all orgs as kubernetes-admin...
@@ -291,7 +293,7 @@ cf marketplace
 # Expected: the service is listed by this command
 echo ""
 echo "Show details of $SERVICE_NAME"
-cf marketplace -e $SERVICE_NAME
+cf marketplace -e "$SERVICE_NAME"
 
 
 #
@@ -300,7 +302,7 @@ cf marketplace -e $SERVICE_NAME
 
 echo ""
 echo "Creating a service instance of myservice..."
-cf create-service $SERVICE_NAME shared ${SERVICE_NAME}-instance
+cf create-service "$SERVICE_NAME" shared "${SERVICE_NAME}-instance"
 echo "...done"
 echo ""
 
@@ -404,8 +406,8 @@ exit 0
 ##
 
 # Clone the repository
-git clone https://github.com/Azure/open-service-broker-azure.git
-cd open-service-broker-azure
+#git clone https://github.com/Azure/open-service-broker-azure.git
+#cd open-service-broker-azure
 
 
 
@@ -420,39 +422,39 @@ cd open-service-broker-azure
 #
 # Fix/Workaround:
 #	Add the stable repo from the new location
-helm repo add stable https://charts.helm.sh/stable
-helm repo update
+#helm repo add stable https://charts.helm.sh/stable
+#helm repo update
 #	Replace the deprecated URL with the new location
-sed -i 's/https:\/\/kubernetes-charts.storage.googleapis.com\//https:\/\/charts.bitnami.com\/bitnami' ./contrib/k8s/charts/open-service-broker-azure/requirements.lock
-sed -i 's/version: .*/version: 20.10.0' ./contrib/k8s/charts/open-service-broker-azure/requirements.lock
-
-sed -i 's/https:\/\/kubernetes-charts.storage.googleapis.com\//https:\/\/charts.bitnami.com\/bitnami' ./contrib/k8s/charts/open-service-broker-azure/requirements.yaml
-sed -i 's/version: .*/version: 20.10.0' ./contrib/k8s/charts/open-service-broker-azure/requirements.yaml
-
-helm dependency update ./contrib/k8s/charts/open-service-broker-azure
+#sed -i 's/https:\/\/kubernetes-charts.storage.googleapis.com\//https:\/\/charts.bitnami.com\/bitnami' ./contrib/k8s/charts/open-service-broker-azure/requirements.lock
+#sed -i 's/version: .*/version: 20.10.0' ./contrib/k8s/charts/open-service-broker-azure/requirements.lock
+#
+#sed -i 's/https:\/\/kubernetes-charts.storage.googleapis.com\//https:\/\/charts.bitnami.com\/bitnami' ./contrib/k8s/charts/open-service-broker-azure/requirements.yaml
+#sed -i 's/version: .*/version: 20.10.0' ./contrib/k8s/charts/open-service-broker-azure/requirements.yaml
+#
+#helm dependency update ./contrib/k8s/charts/open-service-broker-azure
 
 # Alternative workaround:
 #	Download the dependencies manually
-helm fetch bitnami/redis --version 20.10.0
+#helm fetch bitnami/redis --version 20.10.0
 #	.. and install it in the same namespace
-helm install redis bitnami/redis --namespace osba
+#helm install redis bitnami/redis --namespace osba
 
 
 
 ## Install required CRDs
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/broker.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/serviceinstance.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/servicebinding.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/clusterservicebroker.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/clusterserviceinstance.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/clusterservicebinding.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/broker.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/serviceinstance.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/servicebinding.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/clusterservicebroker.crd.#yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/clusterserviceinstance.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/master/deploy/crds/clusterservicebinding.crd.yaml
 
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/broker.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/serviceinstance.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/servicebinding.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/clusterservicebroker.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/clusterserviceinstance.crd.yaml
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/clusterservicebinding.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/broker.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/serviceinstance.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/servicebinding.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/clusterservicebroker.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/clusterserviceinstance.crd.yaml
+#kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catalog/v0.3.0/deploy/crds/clusterservicebinding.crd.yaml
 
 
 
@@ -464,35 +466,35 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/service-catal
 # SP: https://portal.azure.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Overview/objectId/bd0713ac-a153-463f-ac2d-e0cb24b642fa/appId/9160d903-8202-49bb-ae95-f9bd46986ae4
 # epxires on 09-07-2025
 #
-export AZURE_SUBSCRIPTION_ID=<enter value here>
-export AZURE_TENANT_ID=<enter value here>
-export AZURE_CLIENT_ID=<enter value here>
-export AZURE_CLIENT_SECRET=<enter value here>
-export AZURE_LOCATION=westeurope
+#export AZURE_SUBSCRIPTION_ID=<enter value here>
+#export AZURE_TENANT_ID=<enter value here>
+#export AZURE_CLIENT_ID=<enter value here>
+#export AZURE_CLIENT_SECRET=<enter value here>
+#export AZURE_LOCATION=westeurope
 
 
 
 
 
 # Install OSBA on Kubernetes (OSBA will act as a service broker)
-helm install osba ./contrib/k8s/charts/open-service-broker-azure   \
-	--namespace osba --create-namespace \
-	--set azure.subscriptionId=$AZURE_SUBSCRIPTION_ID \
-      	--set azure.tenantId=$AZURE_TENANT_ID   \
-	--set azure.clientId=$AZURE_CLIENT_ID   \
-	--set azure.clientSecret=$AZURE_CLIENT_SECRET   \
-	--set azure.location=$AZURE_LOCATION
+#helm install osba ./contrib/k8s/charts/open-service-broker-azure   \
+#	--namespace osba --create-namespace \
+#	--set azure.subscriptionId=$AZURE_SUBSCRIPTION_ID \
+#      	--set azure.tenantId=$AZURE_TENANT_ID   \
+#	--set azure.clientId=$AZURE_CLIENT_ID   \
+#	--set azure.clientSecret=$AZURE_CLIENT_SECRET   \
+#	--set azure.location=$AZURE_LOCATION
 
 
 # Create a values.yaml with the Azure credentials
-cat <<EOF >values.yaml
-azure:
-  tenantId: "$AZURE_TENANT_ID"
-  subscriptionId: "$AZURE_SUBSCRIPTION_ID"
-  clientId: "$AZURE_CLIENT_ID$"
-  clientSecret: "$AZURE_CLIENT_SECRET$"
-  location: "$AZURE_LOCATION"
-EOF
+#cat <<EOF >values.yaml
+#azure:
+#  tenantId: "$AZURE_TENANT_ID"
+#  subscriptionId: "$AZURE_SUBSCRIPTION_ID"
+#  clientId: "$AZURE_CLIENT_ID$"
+#  clientSecret: "$AZURE_CLIENT_SECRET$"
+#  location: "$AZURE_LOCATION"
+#EOF
 
 
 # Install OSBA in the korifi cluster
@@ -511,26 +513,26 @@ exit 0
 ##
 
 # Add bitnami helm chart repository for MySQL
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
+#helm repo add bitnami https://charts.bitnami.com/bitnami
+#helm repo update
 # verify TODO: how?
 
 # Install the MySQL chart
-helm install my-mysql bitnami/mysql
+#helm install my-mysql bitnami/mysql
 # to customize config set specify values, e.g.
 # helm install my-mysql bitnami/mysql --set mysqlRootPassword=my-secret-pw
 # verify
-kubectl get pods -l app.kubernetes.io/name=mysql
-kubectl get svc -l app.kubernetes.io/name=mysql
+#kubectl get pods -l app.kubernetes.io/name=mysql
+#kubectl get svc -l app.kubernetes.io/name=mysql
 
 # Get credentials
-MYSQL_ROOT_PASSWORD=$(kubectl get secret --namespace default my-mysql -o jsonpath="{.data.mysql-root-password}" | base64 --decode)
+#MYSQL_ROOT_PASSWORD=$(kubectl get secret --namespace default my-mysql -o jsonpath="{.data.mysql-root-password}" | base64 --decode)
 
 # Get MySQL URL (TODO: make scriptable)
-kubectl get svc my-mysql
+#kubectl get svc my-mysql
 
 # Show required info
-echo "MySQL has been installed and can be tested from within the cluster with the following command:"
-echo ""
-echo "	kubectl run -i --tty --rm debug --image=mysql:5.7 --env MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD} -- mysql -h my-mysql -u root -p"
-echo ""
+#echo "MySQL has been installed and can be tested from within the cluster with the following command:"
+#echo ""
+#echo "	kubectl run -i --tty --rm debug --image=mysql:5.7 --env MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD} -- mysql -h my-mysql -u root -p"
+#echo ""

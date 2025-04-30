@@ -27,19 +27,19 @@ create_user_cert() {
   USER=$1
   NAMESPACE=$2
 
-  openssl genrsa -out ${USER}.key 2048
-  openssl req -new -key ${USER}.key -out ${USER}.csr -subj "/CN=${USER}"
-  openssl x509 -req -in ${USER}.csr -CA ~/.kube/certs/ca.crt -CAkey ~/.kube/certs/ca.key \
-    -CAcreateserial -out ${USER}.crt -days 365
+  openssl genrsa -out "${USER}.key" 2048
+  openssl req -new -key "${USER}.key" -out "${USER}.csr" -subj "/CN=${USER}"
+  openssl x509 -req -in "${USER}.csr" -CA ~/.kube/certs/ca.crt -CAkey ~/.kube/certs/ca.key \
+    -CAcreateserial -out "${USER}.crt" -days 365
 
-  kubectl config set-credentials ${USER} \
-    --client-certificate=${USER}.crt \
-    --client-key=${USER}.key
+  kubectl config set-credentials "${USER}" \
+    --client-certificate="${USER}.crt" \
+    --client-key="${USER}.key"
 
-  kubectl config set-context ${USER}-context \
+  kubectl config set-context "${USER}-context" \
     --cluster=kind-city-cluster \
-    --namespace=${NAMESPACE} \
-    --user=${USER}
+    --namespace="${NAMESPACE}" \
+    --user="${USER}"
 }
 
 # Simulate user certs (in a real case you'd use Kubernetes CSR API or proper CA)
@@ -63,15 +63,15 @@ create_rbac() {
   USER=$1
   NAMESPACE=$2
 
-  kubectl create role ${USER}-viewer \
+  kubectl create role "${USER}-viewer" \
     --verb=get,list,watch \
     --resource=pods \
-    --namespace=${NAMESPACE}
+    --namespace="${NAMESPACE}"
 
-  kubectl create rolebinding ${USER}-binding \
-    --role=${USER}-viewer \
-    --user=${USER} \
-    --namespace=${NAMESPACE}
+  kubectl create rolebinding "${USER}-binding" \
+    --role="${USER}-viewer" \
+    --user="${USER}" \
+    --namespace="${NAMESPACE}"
 }
 
 create_rbac anton amsterdam

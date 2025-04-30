@@ -5,7 +5,7 @@
 
 ## Includes
 scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. $scriptpath/utils.sh
+. "$scriptpath/utils.sh"
 
 
 
@@ -23,7 +23,8 @@ strongly_advice_root
 ##
 echo "cleanup..."
 #if $($SUDOCMD kind get clusters | grep 'korifi'); then
-  $SUDOCMD kind delete clusters ${k8s_cluster_korifi}
+# shellcheck disable=SC2090	# it's a command, quoting will fail the command
+$SUDOCMD kind delete clusters "${k8s_cluster_korifi}"
 #fi
 rm ~/.cf -rf
 rm ~/.kube/certs -rf

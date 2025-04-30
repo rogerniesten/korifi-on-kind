@@ -5,6 +5,8 @@
 
 
 
+SUDOCMD=""	# default value
+
 #
 # switch to sudo if not done yet
 #
@@ -18,13 +20,15 @@ strongly_advice_root() {
     echo "Enter sudo password to check sudo permissions"
     sudo echo "sudo ok"
     echo "Running as '$(whoami)', but capable of sudo to root"
+    # shellcheck disable=SC2016,SC2089	# this is meant to be litterall!
     export SUDOCMD='sudo env "PATH=$PATH"'
   
     echo "Recommended is to run as root (sudo $). Running as $(whoami) has turned out to cause issues in some cases."
     echo "Press enter to continue or CTRL-C to exit"
-    read
+    read -r
   fi
 }
+
 
 
 
@@ -34,6 +38,7 @@ strongly_advice_root() {
 function cleanup_file() {
   filename="$1"
   if [[ -f "$filename" ]]; then
+    # shellcheck disable=SC2090		# this is meant to be a command, so quoting would have wrong effect
     $SUDOCMD rm -rf "$filename"
     rv=$?
     if [[ $rv -ne 0 ]]; then

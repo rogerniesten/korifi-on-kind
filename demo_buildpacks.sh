@@ -6,7 +6,7 @@
 
 ## Includes
 scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
-. $scriptpath/utils.sh
+. "$scriptpath/utils.sh"
 
 tmp="$scriptpath/tmp"
 mkdir -p "$tmp"
@@ -213,9 +213,9 @@ echo ""
 
 # Now clone the repository of a simple java application
 echo "Clone the git repo with all sample web apps"
-cd "$scriptpath/.."	#switch to the parent folder, where all git repos are located
+cd "$scriptpath/.." || exit 99	#switch to the parent folder, where all git repos are located
 git clone https://github.com/sylvainkalache/sample-web-apps
-cd sample-web-apps/java
+cd sample-web-apps/java || exit 99
 echo ""
 
 

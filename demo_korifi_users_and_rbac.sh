@@ -6,7 +6,7 @@
 
 ## Includes
 scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
-. $scriptpath/utils.sh
+. "$scriptpath/utils.sh"
 
 tmp="$scriptpath/tmp"
 mkdir -p "$tmp"
@@ -63,9 +63,9 @@ cf create-space -o vijlen vijlen-space
 echo "Orgs and spaces created successfully."
 
 # Some global vars
-CERT_PATH=$tmp
-CAKEY_FILE=$CERT_PATH/ca.key
-CACRT_FILE=$CERT_PATH/ca.crt
+CERT_PATH="$tmp"
+CAKEY_FILE="$CERT_PATH/ca.key"
+CACRT_FILE="$CERT_PATH/ca.crt"
 
 echo "Variables:"
 echo "CERT_PATH:  $CERT_PATH"
@@ -75,39 +75,39 @@ echo ""
 
 
 echo "Get CA from cluster"
-kubectl config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > ${CACRT_FILE}
+kubectl config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > "${CACRT_FILE}"
 docker cp korifi-control-plane:/etc/kubernetes/pki/ca.key "$CAKEY_FILE"
 
 function create_k8s_user_cert() {
   local username=$1
 
-  local KEY_FILE=$CERT_PATH/${username}.key
-  local CSR_FILE=$CERT_PATH/${username}.csr
-  local CRT_FILE=$CERT_PATH/${username}.crt
+  local KEY_FILE="$CERT_PATH/${username}.key"
+  local CSR_FILE="$CERT_PATH/${username}.csr"
+  local CRT_FILE="$CERT_PATH/${username}.crt"
 
   echo "Create K8s user '$username'..."
   # Create certificate for user
   echo " - Create certificate for user $username"
-  openssl genrsa -out $KEY_FILE 2048
-  openssl req -new -key ${KEY_FILE} -out ${CSR_FILE} -subj "/CN=${username}"
+  openssl genrsa -out "$KEY_FILE" 2048
+  openssl req -new -key "${KEY_FILE}" -out "${CSR_FILE}" -subj "/CN=${username}"
 
   # Sign the CSR with the Kubernetes CA
   echo " - Sign the CSR with the Kubernetes CA"
   #echo "DBG: openssl x509 -req -in ${CSR_FILE} -CA ${CACRT_FILE} -CAkey $CAKEY_FILE -CAcreateserial -out ${CRT_FILE} -days 365 -extensions v3_req"
-  openssl x509 -req -in ${CSR_FILE} -CA ${CACRT_FILE} -CAkey $CAKEY_FILE -CAcreateserial -out ${CRT_FILE} -days 365 
+  openssl x509 -req -in "${CSR_FILE}" -CA "${CACRT_FILE}" -CAkey "$CAKEY_FILE" -CAcreateserial -out "${CRT_FILE}" -days 365 
 
   # Set credentials for user 
   echo " - Set cert and key as credentials for user ${username}"
-  kubectl config set-credentials ${username} \
-    --client-certificate=${CRT_FILE} \
-    --client-key=${KEY_FILE}
+  kubectl config set-credentials "${username}" \
+    --client-certificate="${CRT_FILE}" \
+    --client-key="${KEY_FILE}"
 
   # add k8s context for user (this adds a context and a name to ~/.kube/config (or the file set by env var KUBECONFIG))
   echo " - Set context for user ${username}"
-  kubectl config set-context ${username} \
+  kubectl config set-context "${username}" \
     --cluster=kind-korifi \
-    --namespace=${ORG_GUID} \
-    --user=${username}
+    --namespace="${ORG_GUID}" \
+    --user="${username}"
 
   # Create CFUser resource for user
   # NOTE: newer versions of Korifi, cfusers is no longer a CRD - instead, user access is handled
@@ -141,20 +141,21 @@ function create_rbac() {
   local userorg=$2
   local userrole="korifi-org-admin"
 
-  local ROLEBINDING="${username}-${userrole}"
-  local ORG_GUID=$(cf org --guid ${userorg})
-  local k8s_rolename="${userorg}-admin"
+  local ROLEBINDING ORG_GUID k8s_rolename
+  ROLEBINDING="${username}-${userrole}"
+  ORG_GUID=$(cf org --guid "${userorg}")
+  k8s_rolename="${userorg}-admin"
 
   echo "Create RBAC (for $username in $userorg as $userrole)..."
 
   echo " - create rolebinding for ${username} in ${userorg} ($ORG_GUID)"
-  kubectl create rolebinding ${ROLEBINDING} \
-    --namespace=${ORG_GUID} \
-    --clusterrole=${userrole} \
-    --user=${username}
+  kubectl create rolebinding "${ROLEBINDING}" \
+    --namespace="${ORG_GUID}" \
+    --clusterrole="${userrole}" \
+    --user="${username}"
 
   echo " - make ${username} OrgManager for org ${userorg}"
-  cf set-org-role ${username} ${userorg} OrgManager
+  cf set-org-role "${username}" "${userorg}" OrgManager
 
 
   # Step 3: Set Kubernetes Role for admin access in Amsterdam namespace
@@ -182,7 +183,7 @@ EOF
 
   # Step 4: Verify Kubernetes RoleBinding
   echo " - verifying the RoleBinding in Kubernetes..."
-  kubectl get rolebinding ${username}-admin-binding -n ${ORG_GUID}
+  kubectl get rolebinding "${username}-admin-binding" -n "${ORG_GUID}"
 
   echo "...Done"
 }
@@ -202,12 +203,12 @@ function switch_user() {
   assert kubectl config get-contexts | grep "$username" >/dev/null
 
   #echo " - switch to k8s context ${username}"
-  kubectl config use-context ${username}
+  kubectl config use-context "${username}"
 
   #echo " - setting cf api"
   cf api https://localhost --skip-ssl-validation
   #echo " - executing cf auth"
-  cf auth ${username}
+  cf auth "${username}"
 
   #echo "...done"
 }

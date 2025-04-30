@@ -1,4 +1,5 @@
 #! /bin/bash
+# shellcheck disable=SC2090	# all $SUDOCMD aliasses cause an ignorable error, hence disabling this check for all here
 ##
 ## Installation a basic Korifi Cluster KinD (Kubernetes in Docker)
 ##
