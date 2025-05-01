@@ -139,7 +139,9 @@ create_k8s_user_cert "roger"
 function create_rbac() {
   local username=$1
   local userorg=$2
-  local cf_org_role="OrgManager"            # currently hardcoded, should probably be a parameter
+  local cf_org_role="OrgManager"        # currently hardcoded, should probably be a parameter
+  local userspace="${userorg}-space"	# currently generated, should probably be a parameter (in all demos in this repo every org has a space called <org>-space)
+  local cf_space_role="SpaceDeveloper"  # currently hardcoded, should probably be a parameter
 
   ## Valid ClusterRoles in Kubernetes:
   #	ClusterRole/korifi-controllers-admin
@@ -173,12 +175,13 @@ function create_rbac() {
   #	*) Likely internal Korifi role in Kubernetes
 
 
-  local org_guid
+  local org_guid space_guid
+  cf target -o "${userorg}"
   org_guid=$(cf org --guid "${userorg}")
+  space_guid=$(cf space --guid "${userspace}")
 
   echo "Create RBAC (for $username in $userorg as $cf_org_role)..."
-
-  # Note: 
+  # Note:
   # The commands 'cf set-org-role ...', 'kubectl create rolebinding ...' and 'kubectl  apply -f rolebinding.yaml'
   # have a three the same result! (except for the auto-generated binding name for cf set-org-role)
   # After testing it turns out that there is no Result is 3 times the same rolebinding with different
@@ -191,12 +194,22 @@ function create_rbac() {
   # be removed.
 
   echo " - set role '${cf_org_role}' for user '${username}' for org '${userorg}'"
+  #echo "   DBG: cf set-org-role \"${username}\" \"${userorg}\" \"${cf_org_role}\""
   cf set-org-role "${username}" "${userorg}" "${cf_org_role}"
 
   # Verify Kubernetes RoleBinding
-  echo " - DBG: verifying the RoleBinding in Kubernetes..."
+  echo " - verifying the RoleBinding in Kubernetes"
+  #echo "   DBG: kubectl get rolebindings -n \"${org_guid}\""
   kubectl get rolebindings -n "${org_guid}"
 
+  echo " - set role '${cf_space_role}' for user '${username}' for space ${userspace} in org '${userorg}'"
+  #echo "   DBG: cf set-space-role \"${username}\" \"${userorg}\" \"${userspace}\" \"${cf_space_role}\""
+  cf set-space-role "${username}" "${userorg}" "${userspace}" "${cf_space_role}"
+
+  # Verify Kubernetes RoleBinding for Space ${userorg}-space
+  echo " - verifying the RoleBinding in Kubernetes for space '${userspace}' ($space_guid)"
+  #echo "   DBG: kubectl get rolebindings -n \"${space_guid}\""
+  kubectl get rolebindings -n "${space_guid}"
   echo "...Done"
 }
 
