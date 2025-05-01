@@ -139,12 +139,45 @@ create_k8s_user_cert "roger"
 function create_rbac() {
   local username=$1
   local userorg=$2
-  local userrole="korifi-org-admin"
+  local userrole="korifi-controllers-organization-manager"
+
+  ## Valid ClusterRoles in Kubernetes:
+  #	ClusterRole/korifi-controllers-admin
+  #	ClusterRole/korifi-controllers-organization-manager
+  #	ClusterRole/korifi-controllers-organization-user
+  #	ClusterRole/korifi-controllers-root-namespace-user
+  #	ClusterRole/korifi-controllers-space-developer
+  #	ClusterRole/korifi-controllers-space-manager
+
+  ## Valid Roles in Korifi / Cloud Foundry:
+  #	OrgManager 	- Invite and manage users, select and change plans, and set spending limits
+  #	BillingManager 	- Create and manage the billing account and payment info
+  #	OrgAuditor 	- Read-only access to org info and reports
+  #	SpaceManager - Invite and manage users, and enable features for a given space
+  #	SpaceDeveloper - Create and manage apps and services, and see logs and reports
+  #	SpaceAuditor - View logs, reports, and settings on this space
+  #	SpaceSupporter [Beta role, subject to change] - Manage app lifecycle and service bindings
+
+  ## Mapping
+  #	CF/Korifi Role	Kubernetes ClusterRole			Notes
+  #     OrgManager	korifi-controllers-organization-manager	Full admin access to specific org namespace
+  #     OrgAuditor	korifi-controllers-organization-user	Read-only or scoped access to org
+  #	BillingManager						Billing isn't handled at Kubernetes/Korifi level
+  #     SpaceManager    korifi-controllers-space-manager        Manage users and feature flags in space
+  #     SpaceDeveloper	korifi-controllers-space-developer	Full developer access (apps, routes, services)
+  #	SpaceAuditor	?					Missing ClusterRole — you'd need to create one manually
+  #     SpaceSupporter  (Not currently mapped (Beta/Planned))	No ClusterRole yet, maybe planned
+  #     <none> *)	korifi-controllers-admin                Possibly used by controllers, not for users
+  #     <none> *)	korifi-controllers-root-namespace-user  Access to root namespace for system components
+  #
+  #	*) Likely internal Korifi role in Kubernetes
+
+  local cf_role="OrgManager"		# currently hardcoded, should probably be a parameter
 
   local ROLEBINDING ORG_GUID k8s_rolename
   ROLEBINDING="${username}-${userrole}"
   ORG_GUID=$(cf org --guid "${userorg}")
-  k8s_rolename="${userorg}-admin"
+  k8s_rolename="${userrole}"
 
   echo "Create RBAC (for $username in $userorg as $userrole)..."
 
@@ -154,8 +187,8 @@ function create_rbac() {
     --clusterrole="${userrole}" \
     --user="${username}"
 
-  echo " - make ${username} OrgManager for org ${userorg}"
-  cf set-org-role "${username}" "${userorg}" OrgManager
+  echo " - make ${username} '${cf_role}' for org ${userorg}"
+  cf set-org-role "${username}" "${userorg}" "${cf_role}"
 
 
   # Step 3: Set Kubernetes Role for admin access in Amsterdam namespace
@@ -166,7 +199,7 @@ function create_rbac() {
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: ${username}-admin-binding
+  name: ${ROLEBINDING}
   namespace: ${ORG_GUID}
 subjects:
   - kind: User
@@ -183,11 +216,10 @@ EOF
 
   # Step 4: Verify Kubernetes RoleBinding
   echo " - verifying the RoleBinding in Kubernetes..."
-  kubectl get rolebinding "${username}-admin-binding" -n "${ORG_GUID}"
+  kubectl get rolebindings -n "${ORG_GUID}"
 
   echo "...Done"
 }
-
 create_rbac "anton" "amsterdam" 
 create_rbac "roger" "vijlen"
 create_rbac "roger" "nieuwegein"
