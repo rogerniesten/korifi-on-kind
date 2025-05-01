@@ -174,48 +174,28 @@ function create_rbac() {
 
   local cf_role="OrgManager"		# currently hardcoded, should probably be a parameter
 
-  local ROLEBINDING ORG_GUID k8s_rolename
-  ROLEBINDING="${username}-${userrole}"
+  local ORG_GUID
   ORG_GUID=$(cf org --guid "${userorg}")
-  k8s_rolename="${userrole}"
 
   echo "Create RBAC (for $username in $userorg as $userrole)..."
 
-  echo " - create rolebinding for ${username} in ${userorg} ($ORG_GUID)"
-  kubectl create rolebinding "${ROLEBINDING}" \
-    --namespace="${ORG_GUID}" \
-    --clusterrole="${userrole}" \
-    --user="${username}"
+  # Note: 
+  # The commands 'cf set-org-role ...', 'kubectl create rolebinding ...' and 'kubectl  apply -f rolebinding.yaml'
+  # have a three the same result! (except for the auto-generated binding name for cf set-org-role)
+  # After testing it turns out that there is no Result is 3 times the same rolebinding with different
+  # binding names, but same user and clusterrole!
+  # However, cf orgs only works when using cf set-org-role, so this command seems to be doing more than
+  # only setting rolebindings.
+  #
+  # Conclusion:
+  # The command 'cf set-org-role' must be used and the other two are completely superfluous and can
+  # be removed.
 
-  echo " - make ${username} '${cf_role}' for org ${userorg}"
+  echo " - set role '${cf_role}' for user '${username}' for org '${userorg}'"
   cf set-org-role "${username}" "${userorg}" "${cf_role}"
 
-
-  # Step 3: Set Kubernetes Role for admin access in Amsterdam namespace
-  echo " - setup Kubernetes admin access for ${username} in namespace ${userorg} ($ORG_GUID)..."
-
-  # Create RoleBinding YAML file
-  cat <<EOF > "$tmp/rolebinding-amsterdam-admin.yaml"
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ${ROLEBINDING}
-  namespace: ${ORG_GUID}
-subjects:
-  - kind: User
-    name: ${username}
-    apiGroup: rbac.authorization.k8s.io
-roleRef:
-  kind: ClusterRole
-  name: ${k8s_rolename}
-  apiGroup: rbac.authorization.k8s.io
-EOF
-
-  # Apply the RoleBinding YAML to Kubernetes
-  kubectl apply -f "$tmp/rolebinding-amsterdam-admin.yaml"
-
-  # Step 4: Verify Kubernetes RoleBinding
-  echo " - verifying the RoleBinding in Kubernetes..."
+  # Verify Kubernetes RoleBinding
+  echo " - DBG: verifying the RoleBinding in Kubernetes..."
   kubectl get rolebindings -n "${ORG_GUID}"
 
   echo "...Done"
@@ -261,7 +241,7 @@ echo "Show all orgs as admin"
 switch_user kind-korifi
 
 echo "exec: cf orgs"
-cf orgs 2>/dev/null
+cf orgs #2>/dev/null
 
 echo "--------------"
 
@@ -271,7 +251,7 @@ echo "Show all accessible orgs as anton"
 switch_user anton
 
 echo "exec: cf orgs"
-cf orgs 2>/dev/null
+cf orgs #2>/dev/null
 
 echo "--------------"
 
@@ -281,7 +261,7 @@ echo "Show all accessible orgs as roger"
 switch_user roger
 
 echo "exec: cf orgs"
-cf orgs 2>/dev/null
+cf orgs #2>/dev/null
 
 echo "--------------"
 
