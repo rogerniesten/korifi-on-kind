@@ -110,10 +110,10 @@ $ ./demo_korifi_users_and_rbac.sh
 After a check for prerequisits, the script creates some orgs (amsterdam, utrecht, rotterdam, nieuwegein, vijlen) and spaces (amsterdam-space, etc). Then it retrieves the CA from the K8s cluster the same way as in the K8s script.
 
 Then some users (anton, roger) are created by generating a private key, corresponding certificate request and signed with the CA, the user certificated is created. Same way as in K8s script. Only for this demo, the certificates are stored in ./tmp instead of \~/.kube/certs (this is easier to cleanup).
-The creation of the RBAC roles is slightly different. The Cloud Foundry roles OrgManager, OrgAuditor, OrgBillingManager, SpaceManager, SpaceDeveloper and Space Auditor are already availale in the K8s cluster for Korifi, so no need for ```kubectl create role```.
-On Korifi level, cf set-org-role is a high level command which implicitly executed the appropriate K8s commands, including ```kubectl create rolebinding```.
+The creation of the RBAC roles is slightly different. The Cloud Foundry roles OrgManager, OrgAuditor, OrgBillingManager, SpaceManager, SpaceDeveloper and Space Auditor are already availale in the K8s cluster for Korifi, so no need for ```kubectl create role```. Adding a rolebinding for a non-existing role (other than mentioned above) won't display any error and the rolebinding is created in Kubernetes. However, it doesn't do anything because no permissions nor resources are attached to that role in Kubernetes.
+On Korifi level, cf set-org-role is a high level command which implicitly executed the appropriate K8s commands, including ```kubectl create rolebinding``` so no need for any kubectl command here.
 Finally a yaml must be applied to create the rolebinding.
-A quick check is dome to verify the rolebinding.
+A quick check is done to verify the rolebinding.
 
 User anton is granted for amsterdam and user roger is granted for vijlen and nieuwegein.
 
@@ -126,9 +126,7 @@ Now everything is setup, let's show what every user can see:
 - User roger is allowed to see both orgs vijlen and nieuwegein
 
 Open items:
-- Not sure whether other roles than the predefined roles are required, nor how to create them
-- kubectl create rolebinding must be removed from function create_rbac as it seems to be superfluous. Test before commit as it is proposed by ChatGPT!!
-- Demo more actions in restricted orgs
+- Demo more actions in restricted orgs (see script demo_apps_in_orgs.sh)
 
 Sources:
 - https://docs.cloudfoundry.org/adminguide/cli-user-management.html (not implemented for korifi!)
