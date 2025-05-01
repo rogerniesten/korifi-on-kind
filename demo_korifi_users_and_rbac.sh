@@ -106,7 +106,7 @@ function create_k8s_user_cert() {
   echo " - Set context for user ${username}"
   kubectl config set-context "${username}" \
     --cluster=kind-korifi \
-    --namespace="${ORG_GUID}" \
+    --namespace="${org_guid}" \
     --user="${username}"
 
   # Create CFUser resource for user
@@ -139,7 +139,7 @@ create_k8s_user_cert "roger"
 function create_rbac() {
   local username=$1
   local userorg=$2
-  local userrole="korifi-controllers-organization-manager"
+  local cf_org_role="OrgManager"            # currently hardcoded, should probably be a parameter
 
   ## Valid ClusterRoles in Kubernetes:
   #	ClusterRole/korifi-controllers-admin
@@ -172,12 +172,11 @@ function create_rbac() {
   #
   #	*) Likely internal Korifi role in Kubernetes
 
-  local cf_role="OrgManager"		# currently hardcoded, should probably be a parameter
 
-  local ORG_GUID
-  ORG_GUID=$(cf org --guid "${userorg}")
+  local org_guid
+  org_guid=$(cf org --guid "${userorg}")
 
-  echo "Create RBAC (for $username in $userorg as $userrole)..."
+  echo "Create RBAC (for $username in $userorg as $cf_org_role)..."
 
   # Note: 
   # The commands 'cf set-org-role ...', 'kubectl create rolebinding ...' and 'kubectl  apply -f rolebinding.yaml'
@@ -191,15 +190,16 @@ function create_rbac() {
   # The command 'cf set-org-role' must be used and the other two are completely superfluous and can
   # be removed.
 
-  echo " - set role '${cf_role}' for user '${username}' for org '${userorg}'"
-  cf set-org-role "${username}" "${userorg}" "${cf_role}"
+  echo " - set role '${cf_org_role}' for user '${username}' for org '${userorg}'"
+  cf set-org-role "${username}" "${userorg}" "${cf_org_role}"
 
   # Verify Kubernetes RoleBinding
   echo " - DBG: verifying the RoleBinding in Kubernetes..."
-  kubectl get rolebindings -n "${ORG_GUID}"
+  kubectl get rolebindings -n "${org_guid}"
 
   echo "...Done"
 }
+
 create_rbac "anton" "amsterdam" 
 create_rbac "roger" "vijlen"
 create_rbac "roger" "nieuwegein"
