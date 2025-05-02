@@ -1,6 +1,14 @@
 # korifi-on-kind
 Investigation on korifi on kind, including marketplace, etc.
 
+## Table of contents
+- [Some usefull sources](#some-useful-sources)
+- [Prerequisits](#prerequisits)
+- [Demo 1: Setup a korifi cluster in kind](#demo-1-setup-a-korifi-cluster-in-kind)
+- ToDo: rest of content / anchors / demos
+
+
+
 ## Some useful sources:
 - https://tutorials.cloudfoundry.org/korifi/overview/
 - https://docs.cloudfoundry.org/adminguide/index.html
@@ -32,7 +40,7 @@ $ sudo env "PATH=$PATH" bash -i
 
 All scripts are attempted to be idempotent, so multiple runs will give the same result in the end. However, in some cases this might not be achieved entirely. So in case you run into issues it is recommended to start again from scratch (in most cases re-run the script install_korifi.sh is sufficient as it does a complete cleanup before it starts installing).
 
-## Setup a korifi cluster in kind
+## Demo 1: Setup a korifi cluster in kind
 The steps to create a korifi cluster in kind (Kubernetes in Docker) are implemented in bash script install_korifi.sh.
 ```
 $ ./install_korifi.sh
@@ -47,7 +55,7 @@ sources / inspiration:
 - https://github.com/cloudfoundry/korifi/blob/main/INSTALL.kind.md
 
 
-## Install a 3rd party functionality as service via the korifi marketplace
+## Demo 2: Install a 3rd party functionality as service via the korifi marketplace
 This example described how to install a dummy service via a OSBAPI compatible service-broker using the korifi marketplace. First attempt was to create a 'real' service (e.g. mysql), but there were too many issues (probably due to lack of understanding at that point) and deplicated repositories. Therefore the service broker https://github.com/cloudfoundry-community/worlds-simplest-service-broker was used with a dummy service.
 
 Prerequisits:
@@ -82,7 +90,7 @@ Sources:
 - https://www.openservicebrokerapi.org/
 
 
-## How to add users that are limited to a specific org 
+## Demo 3: How to add users that are limited to a specific org 
 In order to give each department its own little corner in the Korifi cluster, users can be limited to access only one organisation in Korifi. Cloud Foundry has implemented User Account and Authentication (UAA) which acts as an OAuth2 provider. Korifi uses a different approach and delegates this responsibility to the Kubernetes API server and Kubernetes native RBAC. See [here](https://github.com/cloudfoundry/korifi/blob/main/docs/user-authentication-overview.md) for more details.
 Therefore user management in Korif is slightly different from user management in Cloud Foundry. Commands like cf create-user or cf delete user as described [here](https://docs.cloudfoundry.org/adminguide/cli-user-management.html) are not available in Korifi. Kubernetes tool kubectl is need for creating, modifying, deleting and granting users. It is also required to change the kubernetes context when switching to a different user, besides logging in using cf login or cf auth. 
 Please note that Kubernetes by itself doesn't store user account! The example script mentioned below creates a user by creating a certificate for that user, which is signed by the CA of that cluster (KIND creates a self signed CA). By creating RBAC bindings, the access is defined for a user (certificate).
@@ -136,14 +144,63 @@ Sources:
 - https://github.com/cloudfoundry/korifi/blob/main/docs/user-authentication-overview.md
 
 
-## Setup network firewall within the korifi cluster
+## Demo 4: Create a custom service using buildbacks (kpack)
+This demo is based on the dzone tutorial where a java webapp will be deployed with just 1 command and a python webapp will be deployed after installing the required buildpack. After each webapp has been deployed, it's shown by cf apps command and called with a curl command to show the well known Hello World!
 
+Prerequisits:
+- First setup a korifi cluster (with name korifi) as described in chapter 'Setup a korifi cluster in kind'
 
-## Create a custom service using buildbacks (kpack)
+Instructions:
+```
+# install korifi, if not done yet:
+$ ./install_korifi.sh
 
-
+# then push the apps to the korifi cluster and test them
+$ demo_buildpacks.sh
+```
 
 sources:
-- https://tutorials.cloudfoundry.org/cf4devs/getting-started/first-push/
+- https://tutorials.cloudfoundry.org/cf4devs/getting-started/first-push/ (not working in korifi without drastic adaptions)
+- https://dzone.com/articles/deploying-python-and-java-applications-to-kubernet
 
+
+## Demo 5: Combine apps (generated with buildpacks) in different organizations in Korifi with restricted userrights
+This demo combines the two previous demos to get a better understanding of them. This also deepens the demo about restricted orgs regarding only seeing (or not seeing) a specific organization in Korifi.
+For this deme we  use same the java webapp as the previous demo. To distinguish between the webapps in the different orgs, a slightly modified copy of the webapp is made for each org. The modified app will not output "Hello World!", but "Hello Amsterdam!" etc.
+
+Prerequisits:
+- First setup a korifi cluster (with name korifi) as described in chapter 'Setup a korifi cluster in kind'
+- The organizations amsterdam, utrecht, nieuwegein and vijlen are required. They are created in chapter 'Demo 3: How to add users that are limited to a specific org'
+- Users anton (with access to org amsterdam) and roger (with access to orgs vijlen en nieuwegein) are requred. They are created in chapter 'Demo 3: How to add users that are limited to a specific org'
+- The git repository sylvainkalache/sample-web-apps needs o to be available on the server on the same level as git repository rogerniesten/korifi-on-kind (done is chapter 'Demo 4: Create a custom service using buildbacks (kpack)')
+
+Instructions:
+```
+# install korifi, if not done yet:
+$ ./install_korifi.sh
+
+# Create required orgs, users and roles
+$ ./demo_korifi_users_and_rbac.sh
+
+# Clone repository sylvainkalache/sample-web-apps
+$ cd ..
+$ git clone https://github.com/sylvainkalache/sample-web-apps
+$ cd -
+# Alternatively run demo 4
+$ ./demo_buildpacks.sh
+
+# Now push the apps to several orgs in the korifi cluster and test them with several users
+$ ./demo_apps_in_orgs.sh
+```
+
+After checking the prerequisits, the script demo_apps_in_orgs.sh creates an additional folder in sample-web-apps for HelloAmsterdam, HellowNieuwegein and HelloUtrecht based on the HelloWorld java webapp. I then pushes the HelloAmsterdam webapp as user anton to org amsterdam and the HelloNieuwegein webapp as user roger to nieuwegein. After each push the webapp is tested by the same user by showing the app by cf apps by the same user. 
+Then user roger pushes the webapp HelloUtrecht to org Utrecht, where user roger has no access. This will fail due to the missing accessrights, as will the checks.
+As a last demo all apps will be shown per user (admin (kind-korifi), anton, roger).
+
+
+## Demo 6: Create a Korifi cluster in a 'real' Kubernetes cluster (e.g. Azure Kubernetes Service)
+
+
+
+## Setup network firewall within the korifi cluster
 
