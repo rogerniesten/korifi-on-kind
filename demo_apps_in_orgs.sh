@@ -127,6 +127,10 @@ check_app_by_user() {
   local app_name="${org}-java-app"
   local app_url="https://${app_name}.apps-127-0-0-1.nip.io"
 
+  switch_user "$username"
+  cf target -o "${org}" -s "${org}-space"
+  echo ""
+
   # let's check the result of the app
   echo ""
   echo "Let's check the app"
