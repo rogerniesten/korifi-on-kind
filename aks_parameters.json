@@ -1,0 +1,277 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "apiVersion": {
+            "value": "2023-10-01"
+        },
+        "resourceName": {
+            "value": "korifi-aks-dev1"
+        },
+        "location": {
+            "value": "westeurope"
+        },
+        "isLocationEdgeZone": {
+            "value": false
+        },
+        "edgeZone": {
+            "value": {}
+        },
+        "useServicePrincipal": {
+            "value": false
+        },
+        "clusterSku": {
+            "value": {
+                "name": "Base",
+                "tier": "Free"
+            }
+        },
+        "clusterTags": {
+            "value": {}
+        },
+        "tagsForAllResources": {
+            "value": {}
+        },
+        "clusterIdentity": {
+            "value": {
+                "type": "SystemAssigned"
+            }
+        },
+        "enableAadProfile": {
+            "value": false
+        },
+        "aadProfile": {
+            "value": {}
+        },
+        "dnsPrefix": {
+            "value": "korifi-aks-dev1-dns"
+        },
+        "kubernetesVersion": {
+            "value": "1.30.0"
+        },
+        "enableRBAC": {
+            "value": true
+        },
+        "windowsProfile": {
+            "value": false
+        },
+        "nodeResourceGroup": {
+            "value": "MC_korifi-aks-dev1_korifi-aks-dev1_westeurope"
+        },
+        "upgradeChannel": {
+            "value": "patch"
+        },
+        "servicePrincipalClientId": {
+            "value": null
+        },
+        "servicePrincipalClientSecret": {
+            "value": null
+        },
+        "adminGroupObjectIDs": {
+            "value": []
+        },
+        "principalId": {
+            "value": ""
+        },
+        "supportPlan": {
+            "value": "KubernetesOfficial"
+        },
+        "azureRbac": {
+            "value": false
+        },
+        "disableLocalAccounts": {
+            "value": false
+        },
+        "enablePrivateCluster": {
+            "value": false
+        },
+        "isPrivateClusterSupported": {
+            "value": true
+        },
+        "enableAuthorizedIpRange": {
+            "value": true
+        },
+        "authorizedIPRanges": {
+            "value": [
+                "50.85.213.21"
+            ]
+        },
+        "isPublicNetworkAccessEnabled": {
+            "value": false
+        },
+        "publicNetworkAccess": {
+            "value": "Enabled"
+        },
+        "enableDiskEncryptionSetID": {
+            "value": false
+        },
+        "diskEncryptionSetID": {
+            "value": ""
+        },
+        "aadSessionKey": {
+            "value": null
+        },
+        "isAzurePolicySupported": {
+            "value": true
+        },
+        "enableAzurePolicy": {
+            "value": false
+        },
+        "isSecretStoreCSIDDriverSupported": {
+            "value": true
+        },
+        "enableSecretStoreCSIDriver": {
+            "value": false
+        },
+        "enableOmsAgent": {
+            "value": true
+        },
+        "workspaceRegion": {
+            "value": "westeurope"
+        },
+        "workspaceName": {
+            "value": "DefaultWorkspace-3e1c599d-e4ac-4199-8744-7b9d9571e193-WEU"
+        },
+        "omsWorkspaceId": {
+            "value": "/subscriptions/3e1c599d-e4ac-4199-8744-7b9d9571e193/resourcegroups/DefaultResourceGroup-WEU/providers/Microsoft.OperationalInsights/workspaces/DefaultWorkspace-3e1c599d-e4ac-4199-8744-7b9d9571e193-WEU"
+        },
+        "omsSku": {
+            "value": "standalone"
+        },
+        "aciVnetSubnetName": {
+            "value": ""
+        },
+        "aciConnectorLinuxEnabled": {
+            "value": false
+        },
+        "acrName": {
+            "value": ""
+        },
+        "acrResourceGroup": {
+            "value": ""
+        },
+        "guidValue": {
+            "value": "b06530e4-be8a-4952-9987-2c45df0f6b35"
+        },
+        "enableVnetSubnetID": {
+            "value": false
+        },
+        "vnetSubnetID": {
+            "value": ""
+        },
+        "loadBalancerSku": {
+            "value": "Standard"
+        },
+        "networkPolicy": {
+            "value": ""
+        },
+        "networkPlugin": {
+            "value": "azure"
+        },
+        "networkPluginMode": {
+            "value": "overlay"
+        },
+        "networkDataplane": {
+            "value": "azure"
+        },
+        "serviceCidr": {
+            "value": ""
+        },
+        "dnsServiceIP": {
+            "value": ""
+        },
+        "spotMaxPrice": {
+            "value": ""
+        },
+        "vmssNodePool": {
+            "value": true
+        },
+        "isAvailabilityZoneEnabled": {
+            "value": true
+        },
+        "osDiskSizeGB": {
+            "value": 0
+        },
+        "agentCount": {
+            "value": 3
+        },
+        "scaleSetEvictionPolicy": {
+            "value": "Delete"
+        },
+        "scaleSetPriority": {
+            "value": "Regular"
+        },
+        "agentTags": {
+            "value": {}
+        },
+        "enableNodePublicIP": {
+            "value": false
+        },
+        "agentNodeTaints": {
+            "value": []
+        },
+        "agentNodeLables": {
+            "value": {}
+        },
+        "agentAvailabilityZones": {
+            "value": []
+        },
+        "agentMode": {
+            "value": "System"
+        },
+        "agentMaxPods": {
+            "value": 30
+        },
+        "agentOSType": {
+            "value": "Linux"
+        },
+        "agentVMSize": {
+            "value": "Standard_D2_v3"
+        },
+        "agentMaxCount": {
+            "value": 5
+        },
+        "agentMinCount": {
+            "value": 3
+        },
+        "enableAutoScaling": {
+            "value": true
+        },
+        "serviceMeshMode": {
+            "value": "Disabled"
+        },
+        "istioInternalIngressGateway": {
+            "value": false
+        },
+        "istioExternalIngressGateway": {
+            "value": false
+        },
+        "nodeOSUpgradeChannel": {
+            "value": "NodeImage"
+        },
+        "isImageCleanerEnabled": {
+            "value": true
+        },
+        "imageCleanerIntervalHours": {
+            "value": 168
+        },
+        "enableOIDC": {
+            "value": true
+        },
+        "issuerURL": {
+            "value": ""
+        },
+        "enableWorkloadIdentity": {
+            "value": true
+        },
+        "fleetName": {
+            "value": ""
+        },
+        "fleetLocation": {
+            "value": ""
+        },
+        "fleetDnsNamePrefix": {
+            "value": ""
+        }
+    }
+}
