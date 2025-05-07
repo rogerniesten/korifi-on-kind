@@ -523,7 +523,7 @@
             }
         },
         "agentVMSize": {
-            "defaultValue": "Standard_D2_v3",
+            "defaultValue": "Standard_B2s",
             "type": "String",
             "metadata": {
                 "description": "The size of the Virtual Machine."
@@ -766,7 +766,7 @@
                     "resources": [
                         {
                             "type": "Microsoft.ContainerService/managedClusters/providers/dataCollectionRuleAssociations",
-                            "name": "[concat('resourceName', '/microsoft.insights/', 'ContainerInsightsExtension')]",
+                            "name": "[concat(parameters('resourceNam'), '/microsoft.insights/', 'ContainerInsightsExtension')]",
                             "apiVersion": "2022-06-01",
                             "properties": {
                                 "description": "Association of data collection rule. Deleting this association will break the data collection for this AKS Cluster.",
@@ -963,7 +963,7 @@
                         "enableAutoScaling": true,
                         "minCount": 2,
                         "maxCount": 5,
-                        "vmSize": "Standard_DS2_v2",
+                        "vmSize": "Standard_B2s",
                         "osType": "Linux",
                         "osSKU": "Ubuntu",
                         "type": "VirtualMachineScaleSets",
