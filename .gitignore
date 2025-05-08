@@ -13,3 +13,6 @@ Thumbs.db
 # Ignore tmp directory (generated during script runs)
 tmp/
 
+# Ignore auto generated files
+.azure_env
+.env
