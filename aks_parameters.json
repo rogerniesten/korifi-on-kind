@@ -8,6 +8,9 @@
         "resourceName": {
             "value": "korifi-aks-dev1"
         },
+        "subscriptionId": {
+            "value": "TO_BE_DEFINED"
+        },
         "location": {
             "value": "westeurope"
         },

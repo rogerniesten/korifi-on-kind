@@ -11,6 +11,12 @@
                 "description": "The name of the Managed Cluster resource."
             }
         },
+        "subscriptionId": {
+            "type": "String",
+            "metadata": {
+                "description": "The GUID of the Azure Subscription."
+            }
+        },
         "location": {
             "type": "String",
             "metadata": {
@@ -24,7 +30,7 @@
         "edgeZone": {
             "defaultValue": {},
             "type": "Object",
-            "metadata": {
+            "metadata": { 
                 "description": "Extended location of the cluster."
             }
         },
@@ -745,7 +751,7 @@
                 },
                 "parameters": {}
             },
-            "subscriptionId": "3e1c599d-e4ac-4199-8744-7b9d9571e193",
+            "subscriptionId": "[parameters('subscriptionId')]",
             "resourceGroup": "[parameters('resourceName')]"
         },
         {
@@ -766,18 +772,18 @@
                     "resources": [
                         {
                             "type": "Microsoft.ContainerService/managedClusters/providers/dataCollectionRuleAssociations",
-                            "name": "[concat(parameters('resourceNam'), '/microsoft.insights/', 'ContainerInsightsExtension')]",
+                            "name": "[concat(parameters('resourceName'), '/microsoft.insights/', 'ContainerInsightsExtension')]",
                             "apiVersion": "2022-06-01",
                             "properties": {
                                 "description": "Association of data collection rule. Deleting this association will break the data collection for this AKS Cluster.",
-                                "dataCollectionRuleId": "[resourceId('3e1c599d-e4ac-4199-8744-7b9d9571e193', parameters('resourceName'), 'Microsoft.Insights/dataCollectionRules', concat('MSCI-westeurope-', parameters('resourceName')))]"
+                                "dataCollectionRuleId": "[resourceId(parameters('subscriptionId'), parameters('resourceName'), 'Microsoft.Insights/dataCollectionRules', concat('MSCI-westeurope-', parameters('resourceName')))]"
                             }
                         }
                     ]
                 },
                 "parameters": {}
             },
-            "subscriptionId": "3e1c599d-e4ac-4199-8744-7b9d9571e193",
+            "subscriptionId": "[parameters('subscriptionId')]",
             "resourceGroup": "[parameters('resourceName')]"
         },
         {
@@ -819,7 +825,7 @@
             "apiVersion": "2021-04-01",
             "name": "InsightsMetricAlertsDepl-452b216f-a781-10ba-56ac-1b8d67c8192d",
             "dependsOn": [
-                "[concat('/subscriptions/3e1c599d-e4ac-4199-8744-7b9d9571e193/resourcegroups/', parameters('resourceName'), '/providers/Microsoft.ContainerService/managedClusters/', parameters('resourceName'))]",
+                "[concat('/subscriptions/', parameters('subscriptionId'), '/resourcegroups/', parameters('resourceName'), '/providers/Microsoft.ContainerService/managedClusters/', parameters('resourceName'))]",
                 "[concat('Microsoft.Resources/deployments/', 'InsightsActionGroupDepl-f77b359d-b241-f1c1-384f-4d3ea870185b')]"
             ],
             "properties": {
@@ -837,7 +843,7 @@
                                 "severity": 3,
                                 "enabled": true,
                                 "scopes": [
-                                    "[concat('/subscriptions/3e1c599d-e4ac-4199-8744-7b9d9571e193/resourcegroups/', parameters('resourceName'), '/providers/Microsoft.ContainerService/managedClusters/', parameters('resourceName'))]"
+                                    "[concat('/subscriptions/', parameters('subscriptionId'), '/resourcegroups/', parameters('resourceName'), '/providers/Microsoft.ContainerService/managedClusters/', parameters('resourceName'))]"
                                 ],
                                 "evaluationFrequency": "PT5M",
                                 "windowSize": "PT5M",
@@ -876,7 +882,7 @@
                                 "severity": 3,
                                 "enabled": true,
                                 "scopes": [
-                                    "[concat('/subscriptions/3e1c599d-e4ac-4199-8744-7b9d9571e193/resourcegroups/', parameters('resourceName'), '/providers/Microsoft.ContainerService/managedClusters/', parameters('resourceName'))]"
+                                    "[concat('/subscriptions/', parameters('subscriptionId'), '/resourcegroups/', parameters('resourceName'), '/providers/Microsoft.ContainerService/managedClusters/', parameters('resourceName'))]"
                                 ],
                                 "evaluationFrequency": "PT5M",
                                 "windowSize": "PT5M",
@@ -1096,7 +1102,7 @@
                     ]
                 }
             },
-            "subscriptionId": "3e1c599d-e4ac-4199-8744-7b9d9571e193",
+            "subscriptionId": "[parameters('subscriptionId')]",
             "resourceGroup": "[parameters('resourceName')]"
         }
     ],
