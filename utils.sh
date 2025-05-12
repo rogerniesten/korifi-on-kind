@@ -73,10 +73,10 @@ function assert() {
 function validate_guid() {
   local guid="$1"
   if [[ "$guid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]]; then
-    echo "DBG: '$guid' valid GUID"
+    #echo "DBG: '$guid' valid GUID"
     return 0
   else
-    echo "DBG: '$guid' is invalid GUID"
+    #echo "DBG: '$guid' is invalid GUID"
     return 1
   fi
 }
@@ -92,20 +92,23 @@ function validate_not_empty() {
 
 
 function prompt_if_missing() {
+  #echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
   local var_name="$1"
-  local var_type="$2:-var}"     #var, secret
+  local var_type="${2^^:-VAR}"     #var, secret
   local prompt_text="${3:-Enter value for variable '$var_name'}"
   local env_file="${4:-.env}"
   local validate_fn=${5:-}
 
   local current_value="${!var_name}"
   local read_params=""
-  if [[ "$var_type^^" == "SECRET" ]]; then read_params="-s "; fi
+  if [[ "${var_type^^}" == "SECRET" ]]; then read_params="-s "; fi
 
-  echo "DBG: current value for var $var-name is '$current_value'."
+  #echo "DBG: current value for var $var_name is '$current_value'."
   while [ -z "$current_value" ] || { [ -n "$validate_fn" ] && ! $validate_fn "$current_value"; }; do
     read $read_params -p "$prompt_text: " current_value
   done
+
+  if [[ "${var_type^^}" == "SECRET" ]]; then echo ""; fi	# add linefeed after secret input
 
   export "$var_name"="$current_value"
 
@@ -195,5 +198,44 @@ function install_if_missing() {
     echo "❌ Failed to install $tool."
     return 1
   fi
+}
+
+
+function duration2sec() {
+  local input="${1// /}"  # remove all spaces
+  local total=0
+  local rest="$input"
+  local matched number unit
+
+  while [[ $rest =~ ^([0-9]+)([a-z]*) ]]; do
+    number="${BASH_REMATCH[1]}"
+    unit="${BASH_REMATCH[2]}"
+    matched="${BASH_REMATCH[0]}"
+
+    # Only accept lowercase units, default to seconds if no unit
+    case "$unit" in
+      "")  (( total += number )) ;;
+      s)   (( total += number )) ;;
+      m)   (( total += number * 60 )) ;;
+      h)   (( total += number * 3600 )) ;;
+      d)   (( total += number * 86400 )) ;;
+      w)   (( total += number * 604800 )) ;;
+      ms)  (( total += number / 1000 )) ;;
+      us)  (( total += number / 1000000 )) ;;
+      *)
+          echo "Error: unknown or invalid unit '$unit'" >&2
+          return 1
+          ;;
+    esac
+
+    rest="${rest#$matched}"
+  done
+
+  if [[ -n $rest ]]; then
+    echo "Error: leftover unparsed input: '$rest'" >&2
+    return 1
+  fi
+
+  echo "$total"
 }
 
