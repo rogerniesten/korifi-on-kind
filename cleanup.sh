@@ -8,11 +8,11 @@ scriptpath="$(dirname "${BASH_SOURCE[0]}")"
 . "$scriptpath/utils.sh"
 
 
-
 ##
 ## Config
 ##
-export k8s_cluster_korifi=korifi
+export K8S_TYPE=KIND     # type: KIND, AKS
+. .env                  # read config from environment file
 
 
 strongly_advice_root
@@ -24,7 +24,8 @@ strongly_advice_root
 echo "cleanup..."
 #if $($SUDOCMD kind get clusters | grep 'korifi'); then
 # shellcheck disable=SC2090	# it's a command, quoting will fail the command
-$SUDOCMD kind delete clusters "${k8s_cluster_korifi}"
+echo "DBG: $SUDOCMD kind delete clusters \"${K8S_CLUSTER_KORIFI}\""
+$SUDOCMD kind delete clusters "${K8S_CLUSTER_KORIFI}"
 #fi
 rm ~/.cf -rf
 rm ~/.kube/certs -rf
