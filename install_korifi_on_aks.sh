@@ -15,44 +15,8 @@ mkdir -p "$tmp"
 ##
 ## Config
 ##
-
-# TODO: Move config to separate file.
-# Reasoning/goal:
-# Having 1 env file with required config which can be used by all other scripts. This enables the 
-# possibility to use all demoes on different korifi cluster types (kind, AKS, ...)
-
-# Define Service Principal details
-export AZ_ENV_FILE="$scriptpath/.azure_env"
-
-export AZ_SERVICE_PRINCIPAL="SP_korifi"
-export AZ_APP_ID="value-in-env-file"
-export AZ_CLIENT_SECRET="${AZ_CLIENT_SECRET:-}"
-export AZ_TENANT_ID="value-in-env-file"
-# Other Azure variables (need to be entered here or will be asked during runtime)
-export AZ_SUBSCRIPTION_ID="value-in-env-file"
-
-touch "$AZ_ENV_FILE"
-# shellcheck source=/dev/null disable=SC2090	# ShellCheck can't follow non-constant source, but not needed here
-. "$AZ_ENV_FILE"
-
-export K8S_CLUSTER_KORIFI="${1:-korifi-cluster12}"
-#? export k8s_cluster_korifi_yaml="${scriptpath}/k8s_korifi_cluster_config.yaml"
-#? export GATEWAY_CLASS_NAME="contour"
-export GO_VERSION=1.24.2
-export GO_PACKAGE="go${GO_VERSION}.linux-amd64.tar.gz"
-export K8S_VERSION="1.30.0"
-export CERT_MANAGER_VERSION="1.17.2"
-export KPACK_VERSION="0.17.0"
-export CONTOUR_VERSION="1.31"
-export KORIFI_VERSION="0.15.1"
-
-export ROOT_NAMESPACE="cf"
-export KORIFI_NAMESPACE="korifi"
-export ADMIN_USERNAME="cf-admin"
-export BASE_DOMAIN="${K8S_CLUSTER_KORIFI}.fake"
-export GATEWAY_CLASS_NAME="contour"
-
-
+export K8S_TYPE=AKS	# type: KIND, AKS
+. .env			# read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -298,7 +262,8 @@ function install_azure_kubernetes_cluster() {
 		 nodeResourceGroup="MC_${aks_name}_${aks_name}_${location}" \
 		 authorizedIPRanges="[\"${my_ip}\"]" \
 		 guidValue="$aks_guid"
-  
+  if [[ "$?" -ne "0" ]]; then echo "Deployment of AKS cluster failed! Script aborted!"; exit 1; fi
+
   # Get credentials
   echo " - Get credentials"
   az aks get-credentials --resource-group "$resource_group" --name "$aks_name"
@@ -359,14 +324,24 @@ echo "Installing cert-manager..."
 echo "TRC: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml
 result=$?
-#echo "Verify:"
-# TODO: How?
+# Wait until all cert-manager pods are ready
+echo "Waiting for cert-manager pods to become ready..."
+while true; do
+  NOT_READY=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | grep -v 'Running' | grep -v 'Completed' | wc -l)
+  TOTAL=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | wc -l)
+  if [[ "$TOTAL" -gt 0 && "$NOT_READY" -eq 0 ]]; then
+    echo "✅ All cert-manager pods are ready."
+    break
+    fi
+  echo "⏳ Still waiting... ($((TOTAL - NOT_READY))/$TOTAL ready)"
+  sleep 3
+done
 echo "...done"
 echo ""
 
 ## Install kpack
 echo "Installing kpack..."
-KPACK_RELEASE_FILE="release-${KPACK_VERSION}.yaml"
+KPACK_RELEASE_FILE="${scriptpath}/tmp/release-${KPACK_VERSION}.yaml"
 KPACK_RELEASE_URL="https://github.com/buildpacks-community/kpack/releases/download/v${KPACK_VERSION}/${KPACK_RELEASE_FILE}"
 # Step 0: Download the YAML
 curl -LO "$KPACK_RELEASE_URL"
@@ -476,6 +451,12 @@ echo ""
 echo "Container registry credentials Secret"
 # dummies are sufficient for pulling images from only public registries and they are required.
 # So ALWAYS create this secret!
+echo "DBG: kubectl create secret docker-registry image-registry-credentials \
+  --docker-username=\"$DOCKER_REGISTRY_USERNAME\" \
+  --docker-password=\"$DOCKER_REGISTRY_PASSWORD\" \
+  --docker-server=\"$DOCKER_REGISTRY_SERVER\" \
+  -n \"$ROOT_NAMESPACE\""
+
 kubectl create secret docker-registry image-registry-credentials \
   --docker-username="$DOCKER_REGISTRY_USERNAME" \
   --docker-password="$DOCKER_REGISTRY_PASSWORD" \
@@ -516,7 +497,7 @@ helm install korifi https://github.com/cloudfoundry/korifi/releases/download/v${
     --set=networking.gatewayClass=$GATEWAY_CLASS_NAME \
     --wait
 result=$?
-echo "Result: $result (ok=0, failed>0)"
+if [[ "$?" -ne "0" ]]; then echo "Helm deployment of Korifi cluster failed! Script aborted!"; exit 1; fi
 
 
 # Wait for all pods in the korifi namespace to be ready
