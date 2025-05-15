@@ -2,7 +2,7 @@
 ##
 ## Library with several functions and utils for Korifi
 ##
-
+#set -euo pipefail
 
 ## Includes
 scriptpath="$(dirname "${BASH_SOURCE[0]}")"
@@ -19,18 +19,16 @@ function create_k8s_user_cert() {
   # retrieve the name of the current Kubernetes Cluster
   K8S_CLUSTER=$(kubectl config view -o jsonpath="{.contexts[?(@.name == '$(kubectl config current-context)')].context.cluster}")
   # Set the certificate filenames
-  local csr_name="${username}@${K8S_CLUSTER}"
   local CERT_PATH="${CERT_PATH:-.}"
-  local KEY_FILE="$CERT_PATH/${csr_name}.key"
-  local CSR_FILE="$CERT_PATH/${csr_name}.csr"
-  local CRT_FILE="$CERT_PATH/${csr_name}.crt"
-  local csr_name="${username}@${K8S_CLUSTER}"
+  local KEY_FILE="$CERT_PATH/${username}.key"
+  local CSR_FILE="$CERT_PATH/${username}.csr"
+  local CRT_FILE="$CERT_PATH/${username}.crt"
 
-  echo "Create K8s user '$csr_name'..."
+  echo "Create K8s user '$username'..."
   # Create certificate for user
-  echo " - Create certificate for user $csr_name"
+  echo " - Create certificate for user $username"
   openssl genrsa -out "$KEY_FILE" 2048
-  openssl req -new -key "${KEY_FILE}" -out "${CSR_FILE}" -subj "/CN=${csr_name}"
+  openssl req -new -key "${KEY_FILE}" -out "${CSR_FILE}" -subj "/CN=${username}"
 
   # Request and sign the CSR with the Kubernetes CA
   csr_encoded=$(base64 -w 0 "$CSR_FILE")
@@ -45,7 +43,7 @@ function create_k8s_user_cert() {
 apiVersion: certificates.k8s.io/v1
 kind: CertificateSigningRequest
 metadata:
-  name: ${csr_name}
+  name: ${username}
 spec:
   request: ${csr_encoded}
   signerName: kubernetes.io/kube-apiserver-client
@@ -56,25 +54,32 @@ EOF
 
   # approve the signing request
   echo " - approve signing request"
-  echo "   kubectl certificate approve ${csr_name}"
-  kubectl certificate approve "$csr_name"
+  echo "   kubectl certificate approve ${username}"
+  kubectl certificate approve "$username"
 
   echo " - retrieve the CRT"
-  echo "   kubectl get csr ${csr_name} -o jsonpath='{.status.certificate}' | base64 -d > ${CRT_FILE}"
-  kubectl get csr "${csr_name}" -o jsonpath='{.status.certificate}' | base64 -d > "${CRT_FILE}"
+  echo "   kubectl get csr ${username} -o jsonpath='{.status.certificate}' | base64 -d > ${CRT_FILE}"
+  kubectl get csr "${username}" -o jsonpath='{.status.certificate}' | base64 -d > "${CRT_FILE}"
 
   # Set credentials for user
-  echo " - Set cert and key as credentials for user ${csr_name}"
-  kubectl config set-credentials "${csr_name}" \
+  echo " - Set cert and key as credentials for user ${username}"
+  echo "   kubectl config set-credentials ${username} \\
+       --client-certificate=${CRT_FILE} \\
+       --client-key=${KEY_FILE} \\
+       --embed-certs=true"
+  kubectl config set-credentials "${username}" \
     --client-certificate="${CRT_FILE}" \
     --client-key="${KEY_FILE}" \
     --embed-certs=true
 
   # add k8s context for user (this adds a context and a name to ~/.kube/config (or the file set by env var KUBECONFIG))
-  echo " - Set context for user ${csr_name}"
-  kubectl config set-context "${csr_name}" \
+  echo " - Set context for user ${username}"
+  echo "   kubectl config set-context ${username} \\
+       --cluster=${K8S_CLUSTER} \\
+       --user=${username}"
+  kubectl config set-context "${username}" \
     --cluster="${K8S_CLUSTER}" \
-    --user="${csr_name}"
+    --user="${username}"
 
   # Create CFUser resource for user
   # NOTE: newer versions of Korifi, cfusers is no longer a CRD - instead, user access is handled
