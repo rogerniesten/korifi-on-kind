@@ -6,7 +6,7 @@
 
 ## Includes
 scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/utils.sh"
+. "$scriptpath/cf_utils.sh"
 tmp="$scriptpath/tmp"
 mkdir -p "$tmp"
 
@@ -137,19 +137,49 @@ $SUDOCMD kubectl wait --for=condition=Ready pods --all --namespace korifi --time
 assert cf version
 
 echo "Korifi installation complete."
-echo "Admin user is: '$ADMIN_USERNAME"
+
+
+echo "Creating admin user '$ADMIN_USERNAME'"
+
+## Create certificates for cf-admin
+echo "Create certificates for '$ADMIN_USERNAME'"
+create_k8s_user_cert "$ADMIN_USERNAME"
+
+echo "Apply admin authorization for ${ADMIN_USERNAME}"
+## apply korifi-admin role to cf-admin
+kubectl apply -f - <<EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ${ADMIN_USERNAME}-binding
+subjects:
+- kind: User
+  name: ${ADMIN_USERNAME}  # <-- must match CN in certificate!
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+EOF
+
 
 
 ##
 ## Login to Korifi as admin and show some demoe results
 ##
 
-cf api https://localhost --skip-ssl-validation
-cf login -u "${ADMIN_USERNAME}"
+echo "cf api ${CF_API_ENDPOINT} --skip-ssl-validation"
+cf api "${CF_API_ENDPOINT}" --skip-ssl-validation
+echo "cf login -u ${ADMIN_USERNAME} -a ${CF_API_ENDPOINT} --skip-ssl-validation"
+cf login -u "${ADMIN_USERNAME}" -a "${CF_API_ENDPOINT}" --skip-ssl-validation
+
 
 # create a default org and default space
+echo "cf create-org org"
 cf create-org org
+echo "cf create-space -o org space"
 cf create-space -o org space
+echo "cf target -o org -s space"
 cf target -o org -s space
 
 

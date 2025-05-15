@@ -98,15 +98,6 @@ function install_azure_cli() {
 
   install_if_missing apt az azure-cli "az version"
 
-# Update repository information and install the Azure CLI
-#<  echo " - Update repository info and install Azure CLI"
-#<  $SUDOCMD apt update
-#<  $SUDOCMD apt install -y azure-cli
-
-#<  # Verify
-#<  echo " - verify"
-#<  az version
-
   echo "...done"
 }
 
@@ -178,7 +169,7 @@ do
   read -srp "Client Secret: " AZ_CLIENT_SECRET
   echo ""	# to force newline
   read -rp  "Tenant ID:     " AZ_TENANT_ID
-  
+
   export AZ_APP_ID=$AZ_APP_ID
   export AZ_CLIENT_SECRET=$AZ_CLIENT_SECRET
   export AZ_TENANT_ID=$AZ_TENANT_ID
@@ -232,42 +223,42 @@ function install_azure_kubernetes_cluster() {
   # Create the resource group
   echo "- create resource group '$resource_group'"
   #echo "  DBG: az group create --name \"$resource_group\" --location \"$location\""
-  az group create --name "$resource_group" --location "$location"
+  az group create --name "${resource_group}"    --location "$location"	# Cluster
   echo ""
 
   # Deploy the AKS cluster
   echo " - deploy Azure Kubernetes Service Cluster '$aks_name'"
-  echo "   az deployment group create \
-    --resource-group \"$resource_group\" \
-    --template-file \"$aks_template\" \
-    --parameters @\"$aks_parameters\" \
-                 resourceName=\"$aks_name\" \
-                 subscriptionId=\"$AZ_SUBSCRIPTION_ID\" \
-                 location=\"$location\" \
-                 dnsPrefix=\"${aks_name}-dns\" \
-                 kubernetesVersion=\"$K8S_VERSION\" \
-                 nodeResourceGroup=\"MC_${aks_name}_${aks_name}_${location}\" \
-                 authorizedIPRanges=\"${my_ip}\" \
-                 guidValue=\"$aks_guid\""
+  echo "   az deployment group create \\
+    --resource-group \"$resource_group\" \\
+    --template-file \"$aks_template\" \\
+    --parameters @\"$aks_parameters\" \\
+	resourceName=\"$aks_name\" \\
+	subscriptionId=\"$AZ_SUBSCRIPTION_ID\" \\
+	location=\"$location\" \\
+	dnsPrefix=\"${aks_name}-dns\" \\
+	kubernetesVersion=\"$K8S_VERSION\" \\
+	nodeResourceGroup=\"${resource_group}_MC\" \\
+	authorizedIPRanges=\"[\\\"${my_ip}\\\"]\" \\
+	guidValue=\"$aks_guid\""
 
   az deployment group create \
     --resource-group "$resource_group" \
     --template-file "$aks_template" \
     --parameters @"$aks_parameters" \
-                 resourceName="$aks_name" \
-		 subscriptionId="$AZ_SUBSCRIPTION_ID" \
-		 location="$location" \
-		 dnsPrefix="${aks_name}-dns" \
-		 kubernetesVersion="$K8S_VERSION" \
-		 nodeResourceGroup="MC_${aks_name}_${aks_name}_${location}" \
-		 authorizedIPRanges="[\"${my_ip}\"]" \
-		 guidValue="$aks_guid"
+  	 resourceName="$aks_name" \
+  	 subscriptionId="$AZ_SUBSCRIPTION_ID" \
+  	 location="$location" \
+  	 dnsPrefix="${aks_name}-dns" \
+  	 kubernetesVersion="$K8S_VERSION" \
+  	 nodeResourceGroup="${resource_group}_MC" \
+  	 authorizedIPRanges="[\"${my_ip}\"]" \
+  	 guidValue="$aks_guid" 
   if [[ "$?" -ne "0" ]]; then echo "Deployment of AKS cluster failed! Script aborted!"; exit 1; fi
 
   # Get credentials
   echo " - Get credentials"
   az aks get-credentials --resource-group "$resource_group" --name "$aks_name"
-  
+
   # Wait for node readiness
   echo " - Waiting for node readiness"
   kubectl wait --for=condition=Ready nodes --all --timeout=300s
@@ -332,7 +323,7 @@ while true; do
   if [[ "$TOTAL" -gt 0 && "$NOT_READY" -eq 0 ]]; then
     echo "✅ All cert-manager pods are ready."
     break
-    fi
+  fi
   echo "⏳ Still waiting... ($((TOTAL - NOT_READY))/$TOTAL ready)"
   sleep 3
 done
@@ -342,13 +333,13 @@ echo ""
 ## Install kpack
 echo "Installing kpack..."
 KPACK_RELEASE_FILE="${scriptpath}/tmp/release-${KPACK_VERSION}.yaml"
-KPACK_RELEASE_URL="https://github.com/buildpacks-community/kpack/releases/download/v${KPACK_VERSION}/${KPACK_RELEASE_FILE}"
+KPACK_RELEASE_URL="https://github.com/buildpacks-community/kpack/releases/download/v${KPACK_VERSION}/release-${KPACK_VERSION}.yaml"
 # Step 0: Download the YAML
-curl -LO "$KPACK_RELEASE_URL"
-echo "TRC: curl -LO \"$KPACK_RELEASE_URL\""
+echo "TRC: curl -L \"$KPACK_RELEASE_URL\" -o \"${KPACK_RELEASE_FILE}\""
+curl -Ls "$KPACK_RELEASE_URL" -o "${KPACK_RELEASE_FILE}"
 # Step 1: Apply only CRDs (initial apply to install CRDs)
-echo "TRC: kubectl apply --filename <(yq e 'select(.kind == \"CustomResourceDefinition\")' \"$KPACK_RELEASE_FILE\")"
-kubectl apply --filename <(yq e 'select(.kind == "CustomResourceDefinition")' "$KPACK_RELEASE_FILE")
+echo "TRC: kubectl apply --filename <(cat \"$KPACK_RELEASE_FILE\" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+kubectl apply --filename <(cat "$KPACK_RELEASE_FILE" | yq e 'select(.kind == "CustomResourceDefinition")')
 # Step 2: Wait for ClusterLifecycle CRD to become available
 echo "Waiting for ClusterLifecycle CRD to be registered..."
 until kubectl get crd clusterlifecycles.kpack.io >/dev/null 2>&1; do
@@ -421,7 +412,7 @@ echo "Pre-install configuration"
 echo "---------------------------------------"
 echo ""
 
-# Namespace creation
+# Namespace creation (TODO: namespaces seem already to be existing, so these command seem to be superfluous and can be removed)
 echo "Namespace creation"
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -451,10 +442,10 @@ echo ""
 echo "Container registry credentials Secret"
 # dummies are sufficient for pulling images from only public registries and they are required.
 # So ALWAYS create this secret!
-echo "DBG: kubectl create secret docker-registry image-registry-credentials \
-  --docker-username=\"$DOCKER_REGISTRY_USERNAME\" \
-  --docker-password=\"$DOCKER_REGISTRY_PASSWORD\" \
-  --docker-server=\"$DOCKER_REGISTRY_SERVER\" \
+echo "DBG: kubectl create secret docker-registry image-registry-credentials \\
+  --docker-username=\"$DOCKER_REGISTRY_USERNAME\" \\
+  --docker-password=\"$DOCKER_REGISTRY_PASSWORD\" \\
+  --docker-server=\"$DOCKER_REGISTRY_SERVER\" \\
   -n \"$ROOT_NAMESPACE\""
 
 kubectl create secret docker-registry image-registry-credentials \
@@ -483,7 +474,17 @@ echo "Install Korifi"
 echo "---------------------------------------"
 echo ""
 
-echo "helm install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz --namespace=$KORIFI_NAMESPACE --set=generateIngressCertificates=true --set=rootNamespace=$ROOT_NAMESPACE --set=adminUserName=$ADMIN_USERNAME --set=api.apiServer.url=api.$BASE_DOMAIN --set=defaultAppDomainName=apps.$BASE_DOMAIN --set=containerRepositoryPrefix=europe-docker.pkg.dev/my-project/korifi/ --set=kpackImageBuilder.builderRepository=europe-docker.pkg.dev/my-project/korifi/kpack-builder --set=networking.gatewayClass=$GATEWAY_CLASS_NAME --wait"
+echo "helm install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz \\
+    --namespace=$KORIFI_NAMESPACE  \\
+    --set=generateIngressCertificates=true \\
+    --set=rootNamespace=$ROOT_NAMESPACE \\
+    --set=adminUserName=$ADMIN_USERNAME \\
+    --set=api.apiServer.url=api.$BASE_DOMAIN \\
+    --set=defaultAppDomainName=apps.$BASE_DOMAIN \\
+    --set=containerRepositoryPrefix=europe-docker.pkg.dev/my-project/korifi/ \\
+    --set=kpackImageBuilder.builderRepository=europe-docker.pkg.dev/my-project/korifi/kpack-builder \\
+    --set=networking.gatewayClass=$GATEWAY_CLASS_NAME \\
+    --wait"
 
 helm install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz \
     --namespace="$KORIFI_NAMESPACE" \
@@ -562,25 +563,6 @@ EOF
 echo "Create certificates for '$ADMIN_USERNAME'"
 create_k8s_user_cert "$ADMIN_USERNAME" 
 
-echo "Apply admin authorization for ${ADMIN_USERNAME}"
-## apply korifi-admin role to cf-admin
-kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: ${ADMIN_USERNAME}-binding
-subjects:
-- kind: User
-  name: ${ADMIN_USERNAME}  # <-- must match CN in certificate!
-  apiGroup: rbac.authorization.k8s.io
-roleRef:
-  kind: ClusterRole
-  name: cluster-admin
-  apiGroup: rbac.authorization.k8s.io
-EOF
-
-
-
 
 
 echo ""
@@ -600,8 +582,10 @@ echo ""
 ## Login to Korifi as admin and show some demoe results
 ##
 
-cf api "https://api.${BASE_DOMAIN}" --skip-ssl-validation
-cf login -u "${ADMIN_USERNAME}"
+echo "cf api ${CF_API_ENDPOINT} --skip-ssl-validation"
+cf api "${CF_API_ENDPOINT}" --skip-ssl-validation
+echo "cf login -u ${ADMIN_USERNAME} -a ${CF_API_ENDPOINT} --skip-ssl-validation"
+cf login -u "${ADMIN_USERNAME}" -a "${CF_API_ENDPOINT}" --skip-ssl-validation
 
 # create a default org and default space
 cf create-org org
