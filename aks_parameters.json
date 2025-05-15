@@ -59,7 +59,7 @@
             "value": false
         },
         "nodeResourceGroup": {
-            "value": "MC_korifi-aks-dev1_korifi-aks-dev1_westeurope"
+            "value": "korifi-aks-dev1_MC"
         },
         "upgradeChannel": {
             "value": "patch"
@@ -125,21 +125,6 @@
         },
         "enableSecretStoreCSIDriver": {
             "value": false
-        },
-        "enableOmsAgent": {
-            "value": true
-        },
-        "workspaceRegion": {
-            "value": "westeurope"
-        },
-        "workspaceName": {
-            "value": "DefaultWorkspace-3e1c599d-e4ac-4199-8744-7b9d9571e193-WEU"
-        },
-        "omsWorkspaceId": {
-            "value": "/subscriptions/3e1c599d-e4ac-4199-8744-7b9d9571e193/resourcegroups/DefaultResourceGroup-WEU/providers/Microsoft.OperationalInsights/workspaces/DefaultWorkspace-3e1c599d-e4ac-4199-8744-7b9d9571e193-WEU"
-        },
-        "omsSku": {
-            "value": "standalone"
         },
         "aciVnetSubnetName": {
             "value": ""
