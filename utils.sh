@@ -124,10 +124,10 @@ function prompt_if_missing() {
 
 
 function install_if_missing() {
-  local installer="${1:-}"	# installer: apt, dnf, yum, packman, snap, brew (auto means, let the function figure out...)
-  local tool="$2"		# name of the tool (or keyword 'package' in case of a command-less package)
-  local package="${3:-$tool}"	# package to be installed 
-  local verify_cmd=$(trim "$4")	# optional
+  local installer="${1:-}"		# installer: apt, dnf, yum, packman, snap, brew (auto means, let the function figure out...)
+  local tool="$2"			# name of the tool (or keyword 'package' in case of a command-less package)
+  local package="${3:-$tool}"		# package to be installed 
+  local verify_cmd=$(trim "${4:-}")	# optional
 
   hash -r  # Clear cached command locations
 
