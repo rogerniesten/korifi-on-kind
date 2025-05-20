@@ -17,7 +17,7 @@ mkdir -p "$tmp"
 ##
 export K8S_TYPE=AKS						# type: KIND, AKS
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. .env || { echo "Config ERROR! Script aborted"; exit 1;	# read config from environment file
+. .env || { echo "Config ERROR! Script aborted"; exit 1; }	# read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
