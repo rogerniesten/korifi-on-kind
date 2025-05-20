@@ -160,7 +160,13 @@ function install_if_missing() {
   case "$installer" in
     apt)	sudo apt update && sudo apt install -y "$package" ;;
     apt-get)	sudo apt-get update && sudo apt-get install -y "$package" ;;
-    snap)	sudo snap install "$package" ;;
+    snap)	sudo snap install "$package" 
+	    	result=$?
+		if [[ "$result" -eq "1" ]]; then
+		  echo "retry with --clasic..."
+		  sudo snap install "$package" --classic
+		fi
+		;;
     dnf) 	sudo dnf install -y "$package" ;;
     yum)	sudo yum install -y "$package" ;;
     pacman)	sudo pacman -Sy --noconfirm "$package" ;;
