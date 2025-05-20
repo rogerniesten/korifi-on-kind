@@ -34,13 +34,7 @@ echo "Installing required tools"
 echo "---------------------------------------"
 echo ""
 
-## First add GPG keys and repo sources
-
-# Helm
-# Cloud Foundry CLI
-curl -fsSL https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/cloudfoundry.org.gpg > /dev/null
-echo "deb [signed-by=/usr/share/keyrings/cloudfoundry.org.gpg] https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
-
+## GPG keys and repo sources are added in .env file
 
 install_if_missing apt jq jq "jq --version"
 install_if_missing apt curl
@@ -49,14 +43,14 @@ install_if_missing apt cf cf8-cli
 
 install_if_missing apt snap snapd
 install_if_missing snap yq yq "yq --version"
-install_if_missing snap kubectl snap #TODO: requires param --classic !!
+install_if_missing snap kubectl kubectl #TODO: requires param --classic !!
 
 # required for KIND
 install_if_missing apt docker docker.io "docker version"
 
 
 ## Install Go
-if go version >/dev/null; then
+if [[ -f "/usr/local/go/bin/go" ]]; then
   echo "✅ go (golang) is already installed."
 else
   # based on: https://go.dev/doc/install
@@ -75,7 +69,7 @@ fi
 
 ## Install KinD
 # For AMD64 / x86_64
-if kind version >/dev/null; then
+if [[ -f "/usr/local/bin/kind" ]]; then
   echo "✅ kind (Kubernetes IN Docker) is already installed."
 else
   echo "Installing kind (Kubernetes in Docker)..."

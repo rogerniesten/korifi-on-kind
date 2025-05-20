@@ -34,24 +34,12 @@ echo "Installing required tools"
 echo "---------------------------------------"
 echo ""
 
-## First add GPG keys and repo sources
-
-# Helm
-curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/helm.gpg > /dev/null # Add the Helm GPG key
-echo "deb https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list # Add reqruied repo source for helm
-# Cloud Foundry CLI
-curl -fsSL https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/cloudfoundry.org.gpg > /dev/null
-echo "deb [signed-by=/usr/share/keyrings/cloudfoundry.org.gpg] https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
-
+## GPG keys and repo sources are added in .env
 
 install_if_missing apt jq jq "jq --version"
 install_if_missing apt curl 
-install_if_missing apt helm helm "helm version"
-install_if_missing apt cf cf8-cli			# TODO: Not needed for AKS, but is lateron needed for Korifi. Decide whether to put in other file...
-
 install_if_missing apt snap snapd
-install_if_missing snap yq yq "yq --version"
-install_if_missing snap kubectl snap #TODO: requires param --classic !!
+install_if_missing snap kubectl kubectl
 
 # required for Azure CLI
 install_if_missing apt package ca-certificates

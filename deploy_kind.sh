@@ -33,15 +33,9 @@ echo "Installing required tools"
 echo "---------------------------------------"
 echo ""
 
-install_if_missing apt jq jq "jq --version"
 install_if_missing apt curl
-install_if_missing apt helm helm "helm version"
-
 install_if_missing apt snap snapd
-install_if_missing snap yq yq "yq --version"
-install_if_missing snap kubectl snap #TODO: requires param --classic !!
-
-# required for KIND
+install_if_missing snap kubectl kubectl
 install_if_missing apt docker docker.io "docker version"
 
 
