@@ -377,10 +377,10 @@ echo ""
 ## Login to Korifi as admin and show some demoe results
 ##
 
-echo "cf api http://${CF_API_DOMAIN}:${CF_HTTP_PORT} --skip-ssl-validation"
-cf api "http://${CF_API_DOMAIN}:${CF_HTTP_PORT}" --skip-ssl-validation
-echo "cf login -u ${ADMIN_USERNAME} -a http://${CF_API_DOMAIN}:${CF_HTTP_PORT} --skip-ssl-validation"
-cf login -u "${ADMIN_USERNAME}" -a "http://${CF_API_DOMAIN}:${HTTP_PORT}" --skip-ssl-validation
+echo "cf api https://${CF_API_DOMAIN} --skip-ssl-validation"
+cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
+echo "cf login -u ${ADMIN_USERNAME} -a https://${CF_API_DOMAIN} --skip-ssl-validation"
+cf login -u "${ADMIN_USERNAME}" -a "https://${CF_API_DOMAIN}" --skip-ssl-validation
 
 # create a default org and default space
 cf create-org org
