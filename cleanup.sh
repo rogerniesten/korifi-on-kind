@@ -37,8 +37,6 @@ rm ~/.cf -rf
 rm ~/.kube/certs -rf
 rm tmp -rf
 
-cleanup_file "/usr/share/keyrings/cli.cloudfoundry.org.gpg"
-cleanup_file "/etc/apt/sources.list.d/cloudfoundry-cli.list"
 echo "...done"
 echo ""
 
