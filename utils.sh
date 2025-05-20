@@ -96,7 +96,7 @@ function prompt_if_missing() {
   local var_name="$1"
   local var_type="${2^^:-VAR}"     #var, secret
   local prompt_text="${3:-Enter value for variable '$var_name'}"
-  local env_file="${4:-.env}"
+  local env_file="${4:-}"
   local validate_fn=${5:-}
 
   local current_value="${!var_name}"
@@ -113,7 +113,7 @@ function prompt_if_missing() {
   export "$var_name"="$current_value"
 
   # Save to env-file
-  if [[ "${var_type^^}" != "SECRET" ]]; then
+  if [[ "${var_type^^}" != "SECRET" && -n "${env_file:-}" ]]; then
     if grep -q "^export $var_name=" "$env_file" 2>/dev/null; then
       sed -i "s|^export $var_name=.*|export $var_name=\"$current_value\"|" "$env_file"
     else

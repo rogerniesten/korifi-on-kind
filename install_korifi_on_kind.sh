@@ -15,8 +15,9 @@ mkdir -p "$tmp"
 ##
 ## Config
 ##
-export K8S_TYPE=KIND     # type: KIND, AKS
-. .env                  # read config from environment file
+export K8S_TYPE=KIND     					# type: KIND, AKS
+prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
+. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
 strongly_advice_root
 
@@ -168,10 +169,10 @@ EOF
 ## Login to Korifi as admin and show some demoe results
 ##
 
-echo "cf api ${CF_API_ENDPOINT} --skip-ssl-validation"
-cf api "${CF_API_ENDPOINT}" --skip-ssl-validation
-echo "cf login -u ${ADMIN_USERNAME} -a ${CF_API_ENDPOINT} --skip-ssl-validation"
-cf login -u "${ADMIN_USERNAME}" -a "${CF_API_ENDPOINT}" --skip-ssl-validation
+echo "cf api ${CF_API_DOMAIN} --skip-ssl-validation"
+cf api "${CF_API_DOMAIN}" --skip-ssl-validation
+echo "cf login -u ${ADMIN_USERNAME} -a ${CF_API_DOMAIN} --skip-ssl-validation"
+cf login -u "${ADMIN_USERNAME}" -a "${CF_API_DOMAIN}" --skip-ssl-validation
 
 
 # create a default org and default space
