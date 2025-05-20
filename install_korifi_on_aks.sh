@@ -16,7 +16,8 @@ mkdir -p "$tmp"
 ## Config
 ##
 export K8S_TYPE=AKS	# type: KIND, AKS
-. .env			# read config from environment file
+prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
+. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -65,7 +66,7 @@ if go version >/dev/null; then
   echo "✅ go (golang) is already installed."
 else
   echo "Installing Go..."
-  wget https://go.dev/dl/${GO_PACKAGE} -O "$tmp/${GO_PACKAGE}"
+  wget "https://go.dev/dl/${GO_PACKAGE}" -O "$tmp/${GO_PACKAGE}"
   tar -C /usr/local -xzf "$tmp/${GO_PACKAGE}"
   export PATH=$PATH:/usr/local/go/bin                                     # add go/bin folder to PATH
   echo "export PATH=$PATH:/usr/local/go/bin" >/etc/profile.d/go.sh        # and make it persistent
@@ -253,7 +254,9 @@ function install_azure_kubernetes_cluster() {
   	 nodeResourceGroup="${resource_group}_MC" \
   	 authorizedIPRanges="[\"${my_ip}\"]" \
   	 guidValue="$aks_guid" 
-  if [[ "$?" -ne "0" ]]; then echo "Deployment of AKS cluster failed! Script aborted!"; exit 1; fi
+
+  result=$?
+  if [[ "$result" -ne "0" ]]; then echo "Deployment of AKS cluster failed! Script aborted!"; exit 1; fi
 
   # Get credentials
   echo " - Get credentials"
@@ -313,11 +316,11 @@ echo ""
 ## Install Cert Manager
 echo "Installing cert-manager..."
 echo "TRC: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml
-result=$?
+kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
 # Wait until all cert-manager pods are ready
 echo "Waiting for cert-manager pods to become ready..."
 while true; do
+  # shellcheck disable=SC2126	# grep -c not possible here as param -v is not combineable with -c
   NOT_READY=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | grep -v 'Running' | grep -v 'Completed' | wc -l)
   TOTAL=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | wc -l)
   if [[ "$TOTAL" -gt 0 && "$NOT_READY" -eq 0 ]]; then
@@ -339,6 +342,7 @@ echo "TRC: curl -L \"$KPACK_RELEASE_URL\" -o \"${KPACK_RELEASE_FILE}\""
 curl -Ls "$KPACK_RELEASE_URL" -o "${KPACK_RELEASE_FILE}"
 # Step 1: Apply only CRDs (initial apply to install CRDs)
 echo "TRC: kubectl apply --filename <(cat \"$KPACK_RELEASE_FILE\" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+# shellcheck disable=SC2002	# due to permissions cat is required
 kubectl apply --filename <(cat "$KPACK_RELEASE_FILE" | yq e 'select(.kind == "CustomResourceDefinition")')
 # Step 2: Wait for ClusterLifecycle CRD to become available
 echo "Waiting for ClusterLifecycle CRD to be registered..."
@@ -360,8 +364,7 @@ echo ""
 echo "Installing contour gateway..."
 echo "- Contour Gateway Provisioner"
 echo "TRC: kubectl apply -f https://raw.githubusercontent.com/projectcontour/contour/release-${CONTOUR_VERSION}/examples/render/contour-gateway-provisioner.yaml"
-kubectl apply -f https://raw.githubusercontent.com/projectcontour/contour/release-${CONTOUR_VERSION}/examples/render/contour-gateway-provisioner.yaml
-result=$?
+kubectl apply -f "https://raw.githubusercontent.com/projectcontour/contour/release-${CONTOUR_VERSION}/examples/render/contour-gateway-provisioner.yaml"
 echo "- Contour Gateway Class"
 echo "TRC: kubectl apply -f - <<EOF
 kind: GatewayClass
@@ -379,7 +382,6 @@ metadata:
 spec:
   controllerName: projectcontour.io/gateway-controller
 EOF
-result=$?
 #echo "Verify:"
 # TODO: How?
 echo "...done"
@@ -395,7 +397,6 @@ else
   echo "Installing Metrics Server..."
   echo "TRC: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-  result=$?
   # verify
   echo "Verify:"
   # TODO: How?
@@ -423,7 +424,6 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/enforce: restricted
 EOF
-result=$?
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -434,7 +434,6 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/enforce: restricted
 EOF
-result=$?
 echo ""
 
 
@@ -486,7 +485,7 @@ echo "helm install korifi https://github.com/cloudfoundry/korifi/releases/downlo
     --set=networking.gatewayClass=$GATEWAY_CLASS_NAME \\
     --wait"
 
-helm install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz \
+helm install korifi "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
     --namespace="$KORIFI_NAMESPACE" \
     --set=generateIngressCertificates=true \
     --set=rootNamespace="$ROOT_NAMESPACE" \
@@ -495,11 +494,10 @@ helm install korifi https://github.com/cloudfoundry/korifi/releases/download/v${
     --set=defaultAppDomainName="apps.$BASE_DOMAIN" \
     --set=containerRepositoryPrefix=europe-docker.pkg.dev/my-project/korifi/ \
     --set=kpackImageBuilder.builderRepository=europe-docker.pkg.dev/my-project/korifi/kpack-builder \
-    --set=networking.gatewayClass=$GATEWAY_CLASS_NAME \
+    --set=networking.gatewayClass="$GATEWAY_CLASS_NAME" \
     --wait
 result=$?
-if [[ "$?" -ne "0" ]]; then echo "Helm deployment of Korifi cluster failed! Script aborted!"; exit 1; fi
-
+if [[ "$result" -ne "0" ]]; then echo "Helm deployment of Korifi cluster failed! Script aborted!"; exit 1; fi
 
 # Wait for all pods in the korifi namespace to be ready
 $SUDOCMD kubectl wait --for=condition=Ready pods --all --namespace korifi --timeout=300s
@@ -582,10 +580,10 @@ echo ""
 ## Login to Korifi as admin and show some demoe results
 ##
 
-echo "cf api ${CF_API_ENDPOINT} --skip-ssl-validation"
-cf api "${CF_API_ENDPOINT}" --skip-ssl-validation
-echo "cf login -u ${ADMIN_USERNAME} -a ${CF_API_ENDPOINT} --skip-ssl-validation"
-cf login -u "${ADMIN_USERNAME}" -a "${CF_API_ENDPOINT}" --skip-ssl-validation
+echo "cf api https://${CF_API_DOMAIN} --skip-ssl-validation"
+cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
+echo "cf login -u ${ADMIN_USERNAME} -a https://${CF_API_DOMAIN} --skip-ssl-validation"
+cf login -u "${ADMIN_USERNAME}" -a "https://${CF_API_DOMAIN}" --skip-ssl-validation
 
 # create a default org and default space
 cf create-org org
