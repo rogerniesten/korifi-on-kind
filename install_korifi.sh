@@ -45,23 +45,7 @@ install_if_missing apt snap snapd
 install_if_missing snap yq yq "yq --version"
 install_if_missing snap kubectl snap 
 
-
-## Install Go
-# based on: https://go.dev/doc/install
-if go version >/dev/null; then
-  echo "✅ go (golang) is already installed."
-else
-  echo "Installing Go..."
-  wget "https://go.dev/dl/${GO_PACKAGE}" -O "$tmp/${GO_PACKAGE}"
-  tar -C /usr/local -xzf "$tmp/${GO_PACKAGE}"
-  export PATH=$PATH:/usr/local/go/bin                                     # add go/bin folder to PATH
-  echo "export PATH=$PATH:/usr/local/go/bin" >/etc/profile.d/go.sh        # and make it persistent
-  echo "verify result:"
-  assert "go version"
-  # expected: version info of go
-  echo "...done"
-  echo ""
-fi
+install_go_if_missing "${GO_VERSION}"
 
 
 ## TODO: DO SOME CHECKS FOR PREREQUISITS !!!
@@ -322,7 +306,7 @@ echo "Apply DNS and gateway configuration"
 echo "kubectl get service envoy-korifi -n korifi-gateway -ojsonpath='{.status.loadBalancer.ingress[0]}'"
 kubectl get service envoy-korifi -n korifi-gateway -ojsonpath='{.status.loadBalancer.ingress[0]}'
 KORIFI_IP=$(kubectl get service envoy-korifi -n korifi-gateway -ojsonpath='{.status.loadBalancer.ingress[0].ip}')
-KORIFI_IP=${KORIFI_IP:-127.0.0.1}	# hose localhost address as backup (for KIND cluster)
+KORIFI_IP=${KORIFI_IP:-::1}	# hose localhost address as backup (for KIND cluster) (Note: IPv6 is used as IPv4 port 443 fails cq. is in use)
 assert test -n "$KORIFI_IP"
 
 # Add domain to /etc/hosts in case it is not handled at a DNS server
@@ -355,6 +339,19 @@ spec:
           namespace: korifi
           port: 443
 EOF
+
+# TODO: Workaround for KIND!!!
+# Somehow the cf api is not reachable from the host anymore (worked in previous version / other VM's, 
+# but can't get it to work anymore). As a workaround, let's run a background process to handle the 
+# port forwarding. Please note that this will only work as long as the terminal that ran the installation
+# remains open!
+if [[ "${K8S_TYPE^^}" == "KIND" ]];then
+  echo ""
+  echo "Starting port forwarding in background"
+  kubectl port-forward -n korifi svc/korifi-api-svc 443:443 &
+  echo "Note: leave this terminal open! When closed, the port forwarding will stop and cf api won't be reachable anymore!"
+  echo ""
+fi
 
 
 ## Create certificates for cf-admin
