@@ -207,6 +207,48 @@ function install_if_missing() {
 }
 
 
+function install_go_if_missing() {
+  local version="${1-1.24.2}"
+  local package="go${version}.linux-amd64.tar.gz"
+  if [[ -f "/usr/local/go/bin/go" ]]; then
+    echo "✅ go (golang) is already installed."
+    return 0
+  fi
+
+  ## Install Go
+  # based on: https://go.dev/doc/install
+  echo "Installing Go..."
+  wget https://go.dev/dl/${package} -O "$tmp/${package}"
+  tar -C /usr/local -xzf "$tmp/${package}"
+  export PATH=$PATH:/usr/local/go/bin                                     # add go/bin folder to PATH
+  echo "export PATH=$PATH:/usr/local/go/bin" >/etc/profile.d/go.sh        # and make it persistent
+  echo "verify result:"
+  assert "go version"
+  # expected: version info of go
+  echo "...done"
+  echo ""
+}
+
+
+function install_kind_if_missing() {
+
+  if [[ -f "/usr/local/bin/kind" ]]; then
+    echo "✅ kind (Kubernetes in Docker) is already installed."
+    return 0
+  fi
+
+  ## Install KinD
+  # For AMD64 / x86_64
+  echo "Installing kind (Kubernetes in Docker)..."
+  [ "$(uname -m)" = "x86_64" ] && curl -sLo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+  chmod +x ./kind
+  sudo mv ./kind /usr/local/bin/kind
+  echo "...done"
+  echo ""
+}
+
+
+
 function duration2sec() {
   local input="${1// /}"  # remove all spaces
   local total=0

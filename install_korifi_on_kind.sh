@@ -48,37 +48,9 @@ install_if_missing snap kubectl kubectl #TODO: requires param --classic !!
 # required for KIND
 install_if_missing apt docker docker.io "docker version"
 
+install_go_if_missing "${GO_VERSION}"
+install_kind_if_missing
 
-## Install Go
-if [[ -f "/usr/local/go/bin/go" ]]; then
-  echo "✅ go (golang) is already installed."
-else
-  # based on: https://go.dev/doc/install
-  echo "Installing Go..."
-  wget https://go.dev/dl/${GO_PACKAGE} -O "$tmp/${GO_PACKAGE}"
-  tar -C /usr/local -xzf "$tmp/${GO_PACKAGE}"
-  export PATH=$PATH:/usr/local/go/bin                                     # add go/bin folder to PATH
-  echo "export PATH=$PATH:/usr/local/go/bin" >/etc/profile.d/go.sh        # and make it persistent
-  echo "verify result:"
-  assert "go version"
-  # expected: version info of go
-  echo "...done"
-  echo ""
-fi
-
-
-## Install KinD
-# For AMD64 / x86_64
-if [[ -f "/usr/local/bin/kind" ]]; then
-  echo "✅ kind (Kubernetes IN Docker) is already installed."
-else
-  echo "Installing kind (Kubernetes in Docker)..."
-  [ "$(uname -m)" = "x86_64" ] && curl -sLo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
-  chmod +x ./kind
-  $SUDOCMD mv ./kind /usr/local/bin/kind
-  echo "...done"
-  echo ""
-fi
 
 
 ##

@@ -51,23 +51,8 @@ install_if_missing apt package apt-transport-https
 install_if_missing apt package lsb-release
 install_if_missing apt package gnupg
 
+install_go_if_missing "${GO_VERSION}"
 
-## Install Go
-# based on: https://go.dev/doc/install
-if go version >/dev/null; then
-  echo "✅ go (golang) is already installed."
-else
-  echo "Installing Go..."
-  wget "https://go.dev/dl/${GO_PACKAGE}" -O "$tmp/${GO_PACKAGE}"
-  tar -C /usr/local -xzf "$tmp/${GO_PACKAGE}"
-  export PATH=$PATH:/usr/local/go/bin                                     # add go/bin folder to PATH
-  echo "export PATH=$PATH:/usr/local/go/bin" >/etc/profile.d/go.sh        # and make it persistent
-  echo "verify result:"
-  assert "go version"
-  # expected: version info of go
-  echo "...done"
-  echo ""
-fi
 
 
 ##
