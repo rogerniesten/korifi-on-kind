@@ -347,8 +347,12 @@ EOF
 # remains open!
 if [[ "${K8S_TYPE^^}" == "KIND" ]];then
   echo ""
-  echo "Starting port forwarding in background"
-  kubectl port-forward -n korifi svc/korifi-api-svc 443:443 &
+  echo "As a workaround, K8s port-fording is started with the following command:"
+  echo ""
+  echo "    sudo kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 &"
+  echo ""
+  sudo kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &
+  reset	# reset the scrambled output
   echo "Note: leave this terminal open! When closed, the port forwarding will stop and cf api won't be reachable anymore!"
   echo ""
 fi
