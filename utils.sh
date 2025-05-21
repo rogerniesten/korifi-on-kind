@@ -223,7 +223,7 @@ function install_go_if_missing() {
   export PATH=$PATH:/usr/local/go/bin                                     # add go/bin folder to PATH
   echo "export PATH=$PATH:/usr/local/go/bin" >/etc/profile.d/go.sh        # and make it persistent
   echo "verify result:"
-  assert "go version"
+  assert "/usr/local/go/bin/go version"
   # expected: version info of go
   echo "...done"
   echo ""
