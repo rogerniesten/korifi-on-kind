@@ -208,25 +208,12 @@ function install_if_missing() {
 
 
 function install_go_if_missing() {
-  local version="${1-1.24.2}"
-  local package="go${version}.linux-amd64.tar.gz"
-  if [[ -f "/usr/local/go/bin/go" ]]; then
-    echo "✅ go (golang) is already installed."
-    return 0
-  fi
 
-  ## Install Go
-  # based on: https://go.dev/doc/install
-  echo "Installing Go..."
-  wget https://go.dev/dl/${package} -O "$tmp/${package}"
-  tar -C /usr/local -xzf "$tmp/${package}"
-  export PATH=$PATH:/usr/local/go/bin                                     # add go/bin folder to PATH
-  echo "export PATH=$PATH:/usr/local/go/bin" >/etc/profile.d/go.sh        # and make it persistent
-  echo "verify result:"
-  assert "/usr/local/go/bin/go version"
-  # expected: version info of go
-  echo "...done"
-  echo ""
+  install_if_missing apt go golang-go "go version"
+  return $?
+
+  install_if_missing snap go go "go version"
+  return $?
 }
 
 
