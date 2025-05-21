@@ -347,6 +347,35 @@ spec:
           port: 443
 EOF
 
+
+
+## Create certificates for cf-admin
+echo "Create certificates for '$ADMIN_USERNAME'"
+create_k8s_user_cert "$ADMIN_USERNAME"
+
+# TODO: WORKAROUND for KIND!!!
+# It seems that cf-admin has not the clusterrole cluster-admin in KIND, which is required for several 
+# actions.
+# Therefore it will be configure here explicitly
+if [[ "${K8S_TYPE^^}" == "KIND" ]];then
+  echo "Apply admin authorization for ${ADMIN_USERNAME}"
+  ## apply korifi-admin role to cf-admin
+  kubectl apply -f - <<EOF
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: ${ADMIN_USERNAME}-binding
+  subjects:
+  - kind: User
+    name: ${ADMIN_USERNAME}  # <-- must match CN in certificate!
+    apiGroup: rbac.authorization.k8s.io
+  roleRef:
+    kind: ClusterRole
+    name: cluster-admin
+    apiGroup: rbac.authorization.k8s.io
+EOF
+fi
+
 # TODO: Workaround for KIND!!!
 # Somehow the cf api is not reachable from the host anymore (worked in previous version / other VM's, 
 # but can't get it to work anymore). As a workaround, let's run a background process to handle the 
@@ -356,18 +385,21 @@ if [[ "${K8S_TYPE^^}" == "KIND" ]];then
   echo ""
   echo "As a workaround, K8s port-fording is started with the following command:"
   echo ""
-  echo "    sudo kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 &"
+  echo "    sudo kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &"
   echo ""
-  sudo kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &
+  echo "Starting background jos for port-forwarding at $(date)" >>forwarding.log
+  nohup sudo kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &
   reset	# reset the scrambled output
+  echo ""
+  echo "Background process:"
+  ps -ef | grep 'kubectl port-forward'
+  echo "Find logs in $(pwd)/forwarding.log"
+  echo ""
   echo "Note: leave this terminal open! When closed, the port forwarding will stop and cf api won't be reachable anymore!"
   echo ""
 fi
 
 
-## Create certificates for cf-admin
-echo "Create certificates for '$ADMIN_USERNAME'"
-create_k8s_user_cert "$ADMIN_USERNAME" 
 
 
 
