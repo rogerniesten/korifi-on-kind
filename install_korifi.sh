@@ -353,11 +353,9 @@ EOF
 echo "Create certificates for '$ADMIN_USERNAME'"
 create_k8s_user_cert "$ADMIN_USERNAME"
 
-# TODO: WORKAROUND for KIND!!!
 # It seems that cf-admin has not the clusterrole cluster-admin in KIND, which is required for several 
 # actions.
 # Therefore it will be configure here explicitly
-if [[ "${K8S_TYPE^^}" == "KIND" ]];then
   echo "Apply admin authorization for ${ADMIN_USERNAME}"
   ## apply korifi-admin role to cf-admin
   kubectl apply -f - <<EOF
@@ -374,7 +372,7 @@ if [[ "${K8S_TYPE^^}" == "KIND" ]];then
     name: cluster-admin
     apiGroup: rbac.authorization.k8s.io
 EOF
-fi
+
 
 # TODO: Workaround for KIND!!!
 # Somehow the cf api is not reachable from the host anymore (worked in previous version / other VM's, 
