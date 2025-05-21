@@ -315,8 +315,14 @@ assert test -n "$KORIFI_IP"
 echo ""
 echo "Add following to /etc/hosts for every machine you want to access the K8S cluster from:"
 echo "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN"
-echo "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN" >>/etc/hosts
-echo "(already done for this machine)"
+if grep "${CF_API_DOMAIN}" /etc/hosts;then
+  # replace existing entry
+  sed -i "s/.*	${CF_API_DOMAIN}/${KORIFI_IP}	${CF_API_DOMAIN}/g" /etc/hosts
+else
+  # add new entry
+  echo "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN" >>/etc/hosts
+  echo "(already done for this machine)"
+fi
 echo ""
 
 # Add a HTTPRoute to Kubernetes to use korifi-api
