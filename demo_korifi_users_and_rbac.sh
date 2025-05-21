@@ -6,14 +6,20 @@
 
 ## Includes
 scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/utils.sh"
-
+. "$scriptpath/cf_utils.sh"
 tmp="$scriptpath/tmp"
 mkdir -p "$tmp"
 
 ##
 ## Config
 ##
+prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
+prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
+. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+
+# Script should be executed as root (just sudo fails for some commands)
+strongly_advice_root
+sync_k8s_user
 
 
 ##
@@ -23,18 +29,21 @@ echo ""
 echo "Check prerequisits..."
 # Are all required tools available?
 assert jq --version
-assert go version
+assert /usr/local/go/bin/go version
 assert kubectl version
 assert helm version
 assert cf --version
 
 # Is KIND kluster running?
-assert "kubectl cluster-info --context kind-korifi | grep 'Kubernetes control plane is running'"
+assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"
 
 # Is Korifi up and running?
-kubectl config use-context kind-korifi
-cf api https://localhost --skip-ssl-validation
-cf login -u kind-korifi -o org -s space
+#kubectl config use-context kind-korifi
+echo "cf api https://${CF_API_DOMAIN} --skip-ssl-validation"
+cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
+echo "cf login -u ${ADMIN_USERNAME} -a https://${CF_API_DOMAIN} --skip-ssl-validation"
+cf login -u "${ADMIN_USERNAME}" -a "https://${CF_API_DOMAIN}" --skip-ssl-validation
+
 cf target -o org -s space
 
 kubectl get pods -n korifi
@@ -62,77 +71,10 @@ cf create-org vijlen
 cf create-space -o vijlen vijlen-space
 echo "Orgs and spaces created successfully."
 
-# Some global vars
-CERT_PATH="$tmp"
-CAKEY_FILE="$CERT_PATH/ca.key"
-CACRT_FILE="$CERT_PATH/ca.crt"
 
-echo "Variables:"
-echo "CERT_PATH:  $CERT_PATH"
-echo "CAKEY_FILE: $CAKEY_FILE"
-echo "CACRT_FILE: $CACRT_FILE"
-echo ""
-
-
-echo "Get CA from cluster"
-kubectl config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > "${CACRT_FILE}"
-docker cp korifi-control-plane:/etc/kubernetes/pki/ca.key "$CAKEY_FILE"
-
-function create_k8s_user_cert() {
-  local username=$1
-
-  local KEY_FILE="$CERT_PATH/${username}.key"
-  local CSR_FILE="$CERT_PATH/${username}.csr"
-  local CRT_FILE="$CERT_PATH/${username}.crt"
-
-  echo "Create K8s user '$username'..."
-  # Create certificate for user
-  echo " - Create certificate for user $username"
-  openssl genrsa -out "$KEY_FILE" 2048
-  openssl req -new -key "${KEY_FILE}" -out "${CSR_FILE}" -subj "/CN=${username}"
-
-  # Sign the CSR with the Kubernetes CA
-  echo " - Sign the CSR with the Kubernetes CA"
-  #echo "DBG: openssl x509 -req -in ${CSR_FILE} -CA ${CACRT_FILE} -CAkey $CAKEY_FILE -CAcreateserial -out ${CRT_FILE} -days 365 -extensions v3_req"
-  openssl x509 -req -in "${CSR_FILE}" -CA "${CACRT_FILE}" -CAkey "$CAKEY_FILE" -CAcreateserial -out "${CRT_FILE}" -days 365 
-
-  # Set credentials for user 
-  echo " - Set cert and key as credentials for user ${username}"
-  kubectl config set-credentials "${username}" \
-    --client-certificate="${CRT_FILE}" \
-    --client-key="${KEY_FILE}"
-
-  # add k8s context for user (this adds a context and a name to ~/.kube/config (or the file set by env var KUBECONFIG))
-  echo " - Set context for user ${username}"
-  kubectl config set-context "${username}" \
-    --cluster=kind-korifi \
-    --namespace="${org_guid}" \
-    --user="${username}"
-
-  # Create CFUser resource for user
-  # NOTE: newer versions of Korifi, cfusers is no longer a CRD - instead, user access is handled
-  #       differently, often via Kubernetes RoleBindings or a webhook-authenticator plugin.
-  #       Therefore applying cfuser resource is not need (will even fail due to missing resource
-  #       type and will be removed from this script
-  #
-  #echo "creating cfuser resource for $username in kubernetes..."
-  #cat <<EOF >$tmp/user_${username}.yaml
-  #apiVersion: korifi.cloudfoundry.org/v1alpha1
-  #kind: CFUser
-  #metadata:
-  ##  name: $username
-  #  namespace: korifi
-  #spec:
-  #  username: $username
-  #EOF
-  #kubectl -f apply $tmp/user_${username}.yaml
-  #echo "...done"
-
-  echo "...done"
-}
-
-create_k8s_user_cert "anton" 
-create_k8s_user_cert "roger"
+## Create users for this demo
+create_k8s_user_cert "anton@${K8S_CLUSTER_KORIFI}" 
+create_k8s_user_cert "roger@${K8S_CLUSTER_KORIFI}"
 
 
 
@@ -213,9 +155,10 @@ function create_rbac() {
   echo "...Done"
 }
 
-create_rbac "anton" "amsterdam" 
-create_rbac "roger" "vijlen"
-create_rbac "roger" "nieuwegein"
+## Grant access to users for orgs
+create_rbac "anton@${K8S_CLUSTER_KORIFI}" "amsterdam" 
+create_rbac "roger@${K8S_CLUSTER_KORIFI}" "vijlen"
+create_rbac "roger@${K8S_CLUSTER_KORIFI}" "nieuwegein"
 
 
 
@@ -227,11 +170,12 @@ function switch_user() {
   #echo " - validate username '$username' against k8s"
   assert kubectl config get-contexts | grep "$username" >/dev/null
 
+  # This is not required, but ensures that cf and k8s are in sync regarding environment (in case of multiple envs)
   #echo " - switch to k8s context ${username}"
   kubectl config use-context "${username}"
 
   #echo " - setting cf api"
-  cf api https://localhost --skip-ssl-validation
+  cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
   #echo " - executing cf auth"
   cf auth "${username}"
 
@@ -251,7 +195,7 @@ echo ""
 
 # 1. Show all orgs as admin
 echo "Show all orgs as admin"
-switch_user kind-korifi
+switch_user "${ADMIN_USERNAME}"
 
 echo "exec: cf orgs"
 cf orgs #2>/dev/null
@@ -261,7 +205,7 @@ echo "--------------"
 
 # 2. Show all accessible orgs as anton
 echo "Show all accessible orgs as anton"
-switch_user anton
+switch_user "anton@${K8S_CLUSTER_KORIFI}"
 
 echo "exec: cf orgs"
 cf orgs #2>/dev/null
@@ -271,7 +215,7 @@ echo "--------------"
 
 # 3. Show all accessible orgs as roger
 echo "Show all accessible orgs as roger"
-switch_user roger
+switch_user "roger@${K8S_CLUSTER_KORIFI}"
 
 echo "exec: cf orgs"
 cf orgs #2>/dev/null
@@ -280,7 +224,7 @@ echo "--------------"
 
 
 # 9. switch back to admin
-switch_user kind-korifi
+switch_user "${ADMIN_USERNAME}"
 
 echo "==== END OF SCRIPT ===="
 echo ""
