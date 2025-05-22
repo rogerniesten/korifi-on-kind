@@ -209,9 +209,11 @@ function install_if_missing() {
 
 function install_go_if_missing() {
 
-  install_if_missing apt go golang-go "go version"
-  return $?
+  #install_if_missing apt go golang-go "go version"
+  #return $?
 
+  # Version 1.21+ is required, but apt installs 1.18 (21-05-2025).
+  # Now using snap which installs version 1.24
   install_if_missing snap go go "go version"
   return $?
 }
