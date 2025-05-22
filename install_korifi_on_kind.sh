@@ -43,7 +43,7 @@ install_if_missing apt cf cf8-cli
 
 install_if_missing apt snap snapd
 install_if_missing snap yq yq "yq --version"
-install_if_missing snap kubectl kubectl #TODO: requires param --classic !!
+install_if_missing snap kubectl kubectl
 
 # required for KIND
 install_if_missing apt docker docker.io "docker version"
@@ -72,6 +72,12 @@ kubectl wait --for=condition=Ready nodes --all --timeout=60s
 echo "...done"
 
 
+# TODO: Workaround for kpack installation
+#	kpack installation might fail because some CRD's are not installed in time
+#	By installing only the CRD parts of kpack first, this issue is bypassed
+#	Therefore kpack is already installed now.
+install_kpack
+
 
 ##
 ## Install Korifi cluster
@@ -87,6 +93,7 @@ echo "to see logs, use: $SUDOCMD kubectl -n korifi-installer logs --follow job/i
 
 # run the installer job
 echo " - run installer job"
+echo "   TRC: $SUDOCMD kubectl apply -f https://github.com/cloudfoundry/korifi/releases/latest/download/install-korifi-kind.yaml"
 $SUDOCMD kubectl apply -f https://github.com/cloudfoundry/korifi/releases/latest/download/install-korifi-kind.yaml
 
 # Wait for the installer job to complete
@@ -135,10 +142,10 @@ EOF
 ## Login to Korifi as admin and show some demoe results
 ##
 
-echo "cf api ${CF_API_DOMAIN} --skip-ssl-validation"
-cf api "${CF_API_DOMAIN}" --skip-ssl-validation
-echo "cf login -u ${ADMIN_USERNAME} -a ${CF_API_DOMAIN} --skip-ssl-validation"
-cf login -u "${ADMIN_USERNAME}" -a "${CF_API_DOMAIN}" --skip-ssl-validation
+echo "cf api https://${CF_API_DOMAIN} --skip-ssl-validation"
+cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
+echo "cf login -u ${ADMIN_USERNAME} -a https://${CF_API_DOMAIN} --skip-ssl-validation"
+cf login -u "${ADMIN_USERNAME}" -a "https://${CF_API_DOMAIN}" --skip-ssl-validation
 
 
 # create a default org and default space

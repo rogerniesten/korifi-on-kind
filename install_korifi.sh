@@ -122,31 +122,7 @@ echo ""
 
 
 ## Install kpack
-echo "Installing kpack..."
-KPACK_RELEASE_FILE="${scriptpath}/tmp/release-${KPACK_VERSION}.yaml"
-KPACK_RELEASE_URL="https://github.com/buildpacks-community/kpack/releases/download/v${KPACK_VERSION}/release-${KPACK_VERSION}.yaml"
-# Step 0: Download the YAML
-echo "TRC: curl -L \"$KPACK_RELEASE_URL\" -o \"${KPACK_RELEASE_FILE}\""
-curl -Ls "$KPACK_RELEASE_URL" -o "${KPACK_RELEASE_FILE}"
-# Step 1: Apply only CRDs (initial apply to install CRDs)
-echo "TRC: kubectl apply --filename <(cat \"$KPACK_RELEASE_FILE\" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
-# shellcheck disable=SC2002     # due to permissions cat is required
-kubectl apply --filename <(cat "$KPACK_RELEASE_FILE" | yq e 'select(.kind == "CustomResourceDefinition")')
-# Step 2: Wait for ClusterLifecycle CRD to become available
-echo "Waiting for ClusterLifecycle CRD to be registered..."
-until kubectl get crd clusterlifecycles.kpack.io >/dev/null 2>&1; do
-  echo -n "."
-  sleep 2
-done
-echo "ClusterLifecycle CRD is now available."
-# Step 3: Apply the release again to ensure all resources are created
-echo "TRC: kubectl apply --filename \"$KPACK_RELEASE_FILE\""
-kubectl apply --filename "$KPACK_RELEASE_FILE"
-# Step 4: Verify kpack
-#echo "Verify:"
-# TODO: How?
-echo "...done"
-echo ""
+install_kpack
 
 
 ## Install Contour Gateway

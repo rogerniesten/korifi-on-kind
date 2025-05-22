@@ -10,6 +10,42 @@ scriptpath="$(dirname "${BASH_SOURCE[0]}")"
 
 
 
+## Install kpack
+function install_kpack() {
+  local version=${1:-$KPACK_VERSION}
+
+  local kpack_release_url="https://github.com/buildpacks-community/kpack/releases/download/v${version}/release-${version}.yaml"
+  
+  # Note: Workaround for kpack installation
+  #       kpack installation might fail because some CRD's are not installed in time
+  #       By installing only the CRD parts of kpack first, this issue is bypassed
+
+  echo "Installing kpack..."
+
+  # Step 1: Apply only CRDs (initial apply to install CRDs)
+  echo "TRC: kubectl apply -f <(wget -qO- $kpack_release_url | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+  kubectl apply -f <(wget -qO- "$kpack_release_url" | yq e 'select(.kind == "CustomResourceDefinition")')
+
+  # Step 2: Wait for ClusterLifecycle CRD to become available
+  echo "Waiting for ClusterLifecycle CRD to be registered..."
+  until kubectl get crd clusterlifecycles.kpack.io >/dev/null 2>&1; do
+    echo -n "."
+    sleep 2
+  done
+  echo "ClusterLifecycle CRD is now available."
+
+  # Step 3: Apply the release again to ensure all resources are created
+  echo "TRC: kubectl apply --filename \"$kpack_release_url\""
+  kubectl apply --filename "$kpack_release_url"
+
+  # Step 4: Verify kpack
+  echo "Waiting for kpack pods are running..."
+  kubectl wait --for=jsonpath='{.status.phase}'=Running pod --all --namespace kpack --timeout=60s
+  echo "...done"
+  echo ""
+}
+
+
 function create_k8s_user_cert() {
   local username=$1
   local exp_period=${2:-1w}
