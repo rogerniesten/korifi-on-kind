@@ -29,7 +29,7 @@ echo ""
 echo "Check prerequisits..."
 # Are all required tools available?
 assert jq --version
-assert /usr/local/go/bin/go version
+assert go version
 assert kubectl version
 assert helm version
 assert cf --version

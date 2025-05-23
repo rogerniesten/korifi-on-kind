@@ -90,6 +90,11 @@ function validate_not_empty() {
   fi
 }
 
+function validate_dummy() {
+  # dummy validation that always returns true
+  return 0
+}
+
 
 function prompt_if_missing() {
   #echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
@@ -194,7 +199,7 @@ function install_if_missing() {
 
   if [[ -n "$verify_cmd" ]]; then
     echo "Verify ($verify_cmd):"
-    assert $verify_cmd
+    assert "$verify_cmd"
   fi
 
   if command -v "$tool" >/dev/null 2>&1; then
@@ -265,7 +270,7 @@ function duration2sec() {
           ;;
     esac
 
-    rest="${rest#$matched}"
+    rest="${rest#"$matched"}"
   done
 
   if [[ -n $rest ]]; then
