@@ -14,4 +14,4 @@ Thumbs.db
 tmp/
 
 # Ignore auto generated files
-.azure_env
+.env.*

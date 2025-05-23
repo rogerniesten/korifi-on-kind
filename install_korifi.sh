@@ -1,5 +1,5 @@
 #! /bin/bash
-# shellcheck disable=SC2090	# all $SUDOCMD aliasses cause an ignorable error, hence disabling this check for all here
+# shellcheck disable=SC2086	# all $SUDOCMD aliasses cause an ignorable error, hence disabling this check for all here
 ##
 ## Installation of a basic Korifi Cluster on AKS (Azure Kubernetes Service)
 
@@ -179,15 +179,26 @@ echo "Pre-install configuration"
 echo "---------------------------------------"
 echo ""
 
-# Container registry credentials Secret
+## Container registry credentials Secret
 echo "Container registry credentials Secret"
+
+# First ensure all required vars are populated
+# Values will be stored in .env_docker_registry
+# For localhost (kind), dummy values are sufficient
+prompt_if_missing DOCKER_REGISTRY_SERVER		"var" "Docker Registry Server (e.g. ghcr.io)"					"$DOCKER_REGISTRY_ENV_FILE" 
+prompt_if_missing DOCKER_REGISTRY_USERNAME              "var" "Username"								"$DOCKER_REGISTRY_ENV_FILE"
+prompt_if_missing DOCKER_REGISTRY_PASSWORD              "var" "Password (for ghcr.io use PAT)"						"$DOCKER_REGISTRY_ENV_FILE"
+prompt_if_missing DOCKER_REGISTRY_CONTAINER_REPOSITORY	"var" "Docker Container Registry (e.g. ghcr.io/rogerniesten/korifi)"		"$DOCKER_REGISTRY_ENV_FILE"
+prompt_if_missing DOCKER_REGISTRY_BUILDER_REPOSITORY	"var" "Docker Builder Registry (e.g. ghcr.io/rogerniesten/korifi-kpack-builder"	"$DOCKER_REGISTRY_ENV_FILE"
+
 # dummies are sufficient for pulling images from only public registries and they are required.
 # So ALWAYS create this secret!
 echo "DBG: kubectl create secret docker-registry image-registry-credentials \\
   --docker-username=\"$DOCKER_REGISTRY_USERNAME\" \\
-  --docker-password=\"$DOCKER_REGISTRY_PASSWORD\" \\
+  --docker-password=\"${DOCKER_REGISTRY_PASSWORD:1:4}**********\" \\
   --docker-server=\"$DOCKER_REGISTRY_SERVER\" \\
   -n \"$ROOT_NAMESPACE\""
+kubectl delete secret image-registry-credentials -n "$ROOT_NAMESPACE" --ignore-not-found	# for idempotency
 kubectl create secret docker-registry image-registry-credentials \
   --docker-username="$DOCKER_REGISTRY_USERNAME" \
   --docker-password="$DOCKER_REGISTRY_PASSWORD" \
@@ -217,8 +228,8 @@ echo "helm upgrade --install korifi https://github.com/cloudfoundry/korifi/relea
     --set=adminUserName=$ADMIN_USERNAME \\
     --set=api.apiServer.url=$CF_API_DOMAIN \\
     --set=defaultAppDomainName=$CF_APPS_DOMAIN \\
-    --set=containerRepositoryPrefix=europe-docker.pkg.dev/my-project/korifi/ \\
-    --set=kpackImageBuilder.builderRepository=europe-docker.pkg.dev/my-project/korifi/kpack-builder \\
+    --set=containerRepositoryPrefix=$DOCKER_REGISTRY_CONTAINER_REPOSITORY \\
+    --set=kpackImageBuilder.builderRepository=$DOCKER_REGISTRY_BUILDER_REPOSITORY \\
     --set=networking.gatewayClass=$GATEWAY_CLASS_NAME \\
     --set=networking.gatewayPorts.http=${CF_HTTP_PORT} \\
     --set=networking.gatewayPorts.https=${CF_HTTPS_PORT} \\
@@ -231,8 +242,8 @@ helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/d
     --set=adminUserName="$ADMIN_USERNAME" \
     --set=api.apiServer.url="$CF_API_DOMAIN" \
     --set=defaultAppDomainName="$CF_APPS_DOMAIN" \
-    --set=containerRepositoryPrefix=europe-docker.pkg.dev/my-project/korifi/ \
-    --set=kpackImageBuilder.builderRepository=europe-docker.pkg.dev/my-project/korifi/kpack-builder \
+    --set=containerRepositoryPrefix="$DOCKER_REGISTRY_CONTAINER_REPOSITORY" \
+    --set=kpackImageBuilder.builderRepository="$DOCKER_REGISTRY_BUILDER_REPOSITORY" \
     --set=networking.gatewayClass="$GATEWAY_CLASS_NAME" \
     --set=networking.gatewayPorts.http="${CF_HTTP_PORT}" \
     --set=networking.gatewayPorts.https="${CF_HTTPS_PORT}" \
@@ -290,13 +301,13 @@ assert test -n "$KORIFI_IP"
 # For Korifi on a KIND cluster the api is on localhosts, which is already configured in /etc/hosts
 echo ""
 echo "Add following to /etc/hosts for every machine you want to access the K8S cluster from:"
-echo "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN"
+echo "${KORIFI_IP}	$CF_API_DOMAIN  $CF_APPS_DOMAIN # for korifi cluster $K8S_CLUSTER_KORIFI"
 if grep "${CF_API_DOMAIN}" /etc/hosts;then
   # replace existing entry
   sed -i "s/.*	${CF_API_DOMAIN}/${KORIFI_IP}	${CF_API_DOMAIN}/g" /etc/hosts
 else
   # add new entry
-  echo "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN" >>/etc/hosts
+  echo "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN	# for korifi cluster $K8S_CLUSTER_KORIFI" >>/etc/hosts
   echo "(already done for this machine)"
 fi
 echo ""
@@ -350,26 +361,31 @@ create_k8s_user_cert "$ADMIN_USERNAME"
 EOF
 
 
+
 # TODO: Workaround for KIND!!!
-# Somehow the cf api is not reachable from the host anymore (worked in previous version / other VM's, 
-# but can't get it to work anymore). As a workaround, let's run a background process to handle the 
-# port forwarding. Please note that this will only work as long as the terminal that ran the installation
-# remains open!
+# The cf api nor k8s load balancer (for apps) is reachable from the host
+# As a workaround, let's run a background process to handle the port forwarding. 
 if [[ "${K8S_TYPE^^}" == "KIND" ]];then
   echo ""
-  echo "As a workaround, K8s port-fording is started with the following command:"
+  echo "As a workaround, K8s port-fording is started:"
   echo ""
-  echo "    sudo kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &"
+  echo "- for api traffic (port 443):"
   echo ""
-  echo "Starting background jos for port-forwarding at $(date)" >>forwarding.log
-  nohup sudo kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &
-  reset	# reset the scrambled output
+  echo "    nohup $SUDO_CMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &"
   echo ""
-  echo "Background process:"
-  ps -ef | grep 'kubectl port-forward'
+  echo "- for apps traffic (port $CF_HTTPSPORT):"
+  echo ""
+  echo "    nohup $SUDO_CMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi $CF_HTTPS_PORT:$CF_HTTPS_PORT >> forwarding.log 2>&1 &"
+  echo ""
+  echo "$(date): Starting background job for CF API port-forwarding port 443" >>forwarding.log
+  echo "$(date): Starting background job for CF APPS port-forwarding port $CF_HTTPS_PORT" >>forwarding.log
+  nohup $SUDO_CMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &
+  nohup $SUDO_CMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi "$CF_HTTPS_PORT:$CF_HTTPS_PORT" >> forwarding.log 2>&1 &
+  reset	# reset the terminal as it might be scrambled after the nohup & commands
+  echo ""
+  echo "Background processes regarding port forwarding:"
+  pgrep -f -a 'kubectl port-forward'
   echo "Find logs in $(pwd)/forwarding.log"
-  echo ""
-  echo "Note: leave this terminal open! When closed, the port forwarding will stop and cf api won't be reachable anymore!"
   echo ""
 fi
 

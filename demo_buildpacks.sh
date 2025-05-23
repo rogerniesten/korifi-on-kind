@@ -7,13 +7,19 @@
 ## Includes
 scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
 . "$scriptpath/utils.sh"
-
 tmp="$scriptpath/tmp"
 mkdir -p "$tmp"
 
 ##
 ## Config
 ##
+prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
+prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
+. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+
+# Script should be executed as root (just sudo fails for some commands)
+strongly_advice_root
+sync_k8s_user
 
 
 ##
@@ -23,18 +29,17 @@ echo ""
 echo "Check prerequisits..."
 # Are all required tools available?
 assert jq --version
-assert go version
+assert /usr/local/go/bin/go version
 assert kubectl version
 assert helm version
 assert cf --version
 
 # Is KIND kluster running?
-assert "kubectl cluster-info --context kind-korifi | grep 'Kubernetes control plane is running'"
+assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"
 
 # Is Korifi up and running?
-kubectl config use-context kind-korifi
-cf api https://localhost --skip-ssl-validation
-cf login -u kind-korifi -o org -s space
+cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
+cf login -u "${ADMIN_USERNAME}" -o org -s space
 cf target -o org -s space
 
 kubectl get pods -n korifi
@@ -217,7 +222,8 @@ cd "$scriptpath/.." || exit 99	#switch to the parent folder, where all git repos
 git clone https://github.com/sylvainkalache/sample-web-apps
 cd sample-web-apps/java || exit 99
 echo ""
-
+echo "List of current folder ($(pwd)):"
+ls -la
 
 # Now push the sample java app to korifi
 echo ""
@@ -225,29 +231,36 @@ echo ""
 echo "============================================"
 echo "Demo 1: Push a sample JAVA web app to korifi"
 echo "============================================"
+APP_NAME="my-java-app"
 echo ""
-cf push my-java-app
+echo "cf push $APP_NAME"
+cf push "$APP_NAME"
 echo ""
 
+# Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
+APP_URL=$(cf curl "/v3/apps/$(cf app "$APP_NAME" --guid)/routes" | jq -r '.resources[0].url')
+if ! grep "${APP_URL}" /etc/hosts;then
+  sed -i "s/$CF_APPS_DOMAIN/$CF_APPS_DOMAIN $APP_URL/g" /etc/hosts	# assumption is that the apps domain is already in /etc/hosts (added in install_korifi.sh)
+fi
 
 # let's check the result of the app
 echo ""
 echo "Let's check the app"
 echo "-------------------"
 echo ""
-cf app my-java-app
+echo "cf app $APP_NAME"
+cf app "$APP_NAME"
 echo ""
 
-echo "Call the URL of the app: curl --insecure https://my-java-app.apps-127-0-0-1.nip.io"
-curl --insecure https://my-java-app.apps-127-0-0-1.nip.io
+echo "Call the URL of the app: curl --insecure https://$APP_URL:$CF_HTTPS_PORT"
+curl --insecure "https://$APP_URL:$CF_HTTPS_PORT"
 # Expected:
 #	Hello, World!
 #	Java Version: 21.0.7
 echo ""
 
-echo "Show the headers of the call: curl -I --insecure https://my-java-app.apps-127-0-0-1.nip.io"
-curl -I --insecure https://my-java-app.apps-127-0-0-1.nip.io
-# Expected:
+echo "Show the headers of the call: curl -I --insecure https://$APP_URL:$CF_HTTPS_PORT"
+curl -I --insecure "https://$APP_URL:$CF_HTTPS_PORT"
 #	HTTP/2 200
 #	date: Tue, 29 Apr 2025 09:08:16 GMT
 #	x-envoy-upstream-service-time: 2
@@ -257,13 +270,14 @@ echo ""
 
 
 
-
 # Now push the sample Python app to korifi
 echo ""
 echo ""
 echo "=============================================="
 echo "Demo 2: Push a sample Python web app to korifi"
+echo "        for a non-pre-installed buildpack"
 echo "=============================================="
+APP_NAME="my-python-app"
 echo ""
 
 
@@ -290,27 +304,32 @@ echo ""
 
 
 echo "Now push the python app to korifi"
-cf push my-python-app
+cf push "$APP_NAME"
 echo ""
 
+# Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
+APP_URL=$(cf curl "/v3/apps/$(cf app "$APP_NAME" --guid)/routes" | jq -r '.resources[0].url')
+if ! grep "${APP_URL}" /etc/hosts;then
+  sed -i "s/$CF_APPS_DOMAIN/$CF_APPS_DOMAIN $APP_URL/g" /etc/hosts        # assumption is that the apps domain is already in /etc/hosts (added in install_korifi.sh)
+fi
 
 # let's check the result of the app
 echo ""
 echo "Let's check the app"
 echo "-------------------"
 echo ""
-cf app my-python-app
+cf app "$APP_NAME"
 echo ""
 
-echo "Call the URL of the app: curl --insecure https://my-python-app.apps-127-0-0-1.nip.io"
-curl --insecure https://my-python-app.apps-127-0-0-1.nip.io
+echo "Call the URL of the app: curl --insecure https://$APP_URL:$CF_HTTPS_PORT"
+curl --insecure "https://$APP_URL:$CF_HTTPS_PORT"
 # Expected:
 #       Hello, World!
 #       Python version: 3.10.17
 echo ""
 
-echo "Show the headers of the call: curl -I --insecure https://my-python-app.apps-127-0-0-1.nip.io"
-curl -I --insecure https://my-python-app.apps-127-0-0-1.nip.io
+echo "Show the headers of the call: curl -I --insecure https://$APP_URL:$CF_HTTPS_PORT"
+curl -I --insecure "https://$APP_URL:$CF_HTTPS_PORT"
 # Expected:
 #	HTTP/2 200
 #	server: envoy
