@@ -162,28 +162,6 @@ create_rbac "roger@${K8S_CLUSTER_KORIFI}" "nieuwegein"
 
 
 
-function switch_user() {
-  local username=$1
-
-  echo "Switch to user '$username'..."
-  # Validate name in k8s
-  #echo " - validate username '$username' against k8s"
-  assert kubectl config get-contexts | grep "$username" >/dev/null
-
-  # This is not required, but ensures that cf and k8s are in sync regarding environment (in case of multiple envs)
-  #echo " - switch to k8s context ${username}"
-  kubectl config use-context "${username}"
-
-  #echo " - setting cf api"
-  cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
-  #echo " - executing cf auth"
-  cf auth "${username}"
-
-  #echo "...done"
-}
-
-
-
 ##
 ## Now show the results of the demo
 ##
@@ -204,7 +182,7 @@ echo "--------------"
 
 
 # 2. Show all accessible orgs as anton
-echo "Show all accessible orgs as anton"
+echo "Show all accessible orgs as anton@${K8S_CLUSTER_KORIFI}"
 switch_user "anton@${K8S_CLUSTER_KORIFI}"
 
 echo "exec: cf orgs"
@@ -214,7 +192,7 @@ echo "--------------"
 
 
 # 3. Show all accessible orgs as roger
-echo "Show all accessible orgs as roger"
+echo "Show all accessible orgs as roger@${K8S_CLUSTER_KORIFI}"
 switch_user "roger@${K8S_CLUSTER_KORIFI}"
 
 echo "exec: cf orgs"
