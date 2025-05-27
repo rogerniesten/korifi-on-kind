@@ -233,6 +233,8 @@ echo "helm upgrade --install korifi https://github.com/cloudfoundry/korifi/relea
     --set=networking.gatewayClass=$GATEWAY_CLASS_NAME \\
     --set=networking.gatewayPorts.http=${CF_HTTP_PORT} \\
     --set=networking.gatewayPorts.https=${CF_HTTPS_PORT} \\
+    --set experimental.managedServices.enabled=true \\
+    --set=experimental.managedServices.trustInsecureBrokers=true \\
     --wait"
 
 helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
@@ -247,6 +249,8 @@ helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/d
     --set=networking.gatewayClass="$GATEWAY_CLASS_NAME" \
     --set=networking.gatewayPorts.http="${CF_HTTP_PORT}" \
     --set=networking.gatewayPorts.https="${CF_HTTPS_PORT}" \
+    --set experimental.managedServices.enabled=true \
+    --set=experimental.managedServices.trustInsecureBrokers=true \
     --wait
     # In KIND following params are set different (https://github.com/cloudfoundry/korifi/releases/latest/download/install-korifi-kind.yaml)
     # TODO: In case of issues in KIND with this install script, concider changing the values of these params
@@ -373,7 +377,7 @@ if [[ "${K8S_TYPE^^}" == "KIND" ]];then
   echo ""
   echo "    nohup $SUDO_CMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &"
   echo ""
-  echo "- for apps traffic (port $CF_HTTPSPORT):"
+  echo "- for apps traffic (port $CF_HTTP_SPORT):"
   echo ""
   echo "    nohup $SUDO_CMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi $CF_HTTPS_PORT:$CF_HTTPS_PORT >> forwarding.log 2>&1 &"
   echo ""
