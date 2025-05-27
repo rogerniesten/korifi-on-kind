@@ -12,9 +12,17 @@ scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
 tmp="$scriptpath/tmp"
 mkdir -p "$tmp"
 
+
 ##
 ## Config
 ##
+prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
+prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
+. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+
+# Script should be executed as root (just sudo fails for some commands)
+strongly_advice_root
+sync_k8s_user
 
 
 ##
@@ -30,21 +38,21 @@ assert helm version
 assert cf --version
 
 # Is KIND kluster running?
-assert "kubectl cluster-info --context kind-korifi | grep 'Kubernetes control plane is running'"
+assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"
 
 # Is Korifi up and running?
-kubectl config use-context kind-korifi
-cf api https://localhost --skip-ssl-validation
-cf login -u kind-korifi -o org -s space
+cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
+cf login -u "${ADMIN_USERNAME}" -o org -s space
 cf target -o org -s space
 
 kubectl get pods -n korifi
 assert "kubectl get pods -n korifi | grep Running"
 echo "...done"
 
+
 # Are users anton and roger present?
-#kubectl get rolebindings -A | grep roger && echo 'User roger is configured' || USERS_FOUND=0
-#kubectl get rolebindings -A | grep anton && echo 'User anton is configured' || USERS_FOUND=0
+#kubectl get rolebindings -A | grep "roger@${K8S_CLUSTER_KORIFI}" && echo 'User roger is configured' || USERS_FOUND=0
+#kubectl get rolebindings -A | grep "anton@${K8S_CLUSTER_KORIFI}" && echo 'User anton is configured' || USERS_FOUND=0
 #if [[ "$USERS_FOUND" == "0" ]]; then
 #  echo "Expected users not configured. Please run script ./demo_korifi_users_and_rbac.sh and try again"
 #  exit 1
@@ -118,16 +126,32 @@ push_app_by_user_in_org() {
   echo "push application '${app_name}'"
   cf push "${app_name}"
   echo ""
+
+  # Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
+  app_url=$(cf curl "/v3/apps/$(cf app "$app_name" --guid)/routes" | jq -r '.resources[0].url')
+  echo "DBG: app_url=$app_url"
+  if ! grep "${app_url}" /etc/hosts >/dev/null;then
+    echo "DBG: adding app url to line."
+    sed -i "s/$CF_APPS_DOMAIN/$CF_APPS_DOMAIN $app_url/g" /etc/hosts      # assumption is that the apps domain is already in /etc/hosts (added in install_korifi.sh)
+  fi
 }
+
 
 check_app_by_user() {
   local username=$1
   local org=$2
+  local apps_port="${3:$CF_HTTPS_PORT}"
   
   local app_name="${org}-java-app"
-  local app_url="https://${app_name}.apps-127-0-0-1.nip.io"
+  local app_url=$(cf curl "/v3/apps/$(cf app "$app_name" --guid)/routes" | jq -r '.resources[0].url')
+  if [[ -z "$app_url" || "$app_url" == "null" ]]; then
+    echo "FAILURE: no valid url ($app_url) can be found for app '$app_name'"
+    echo ""
+    return
+  fi
 
   switch_user "$username"
+  # OR -> cf login -u "$username" -a "https://${CF_API_DOMAIN}" --skip-ssl-validation
   cf target -o "${org}" -s "${org}-space"
   echo ""
 
@@ -136,24 +160,24 @@ check_app_by_user() {
   echo "Let's check the app"
   echo "-------------------"
   echo ""
-  cf app "${app_name}"
+  echo "cf app $APP_NAME"
+  cf app "$APP_NAME"
   echo ""
-
-  echo "Call the URL of the app: curl --insecure ${app_url}"
-  curl --insecure "${app_url}"
+  
+  echo "Call the URL of the app: curl --insecure https://$app_url:$apps_port"
+  curl --insecure "https://$app_url:$apps_port"
   # Expected:
-  #	Hello, <city>!
-  #	Java Version: 21.0.7
+  #       Hello, World!
+  #       Java Version: 21.0.7
   echo ""
-
-  echo "Show the headers of the call: curl -I --insecure ${app_url}"
-  curl -I --insecure "${app_url}"
-  # Expected:
-  #	HTTP/2 200
-  #	date: Tue, 29 Apr 2025 09:08:16 GMT
-  #	x-envoy-upstream-service-time: 2
-  #	vary: Accept-Encoding
-  #	server: envoy
+  
+  echo "Call the URL of the app: curl -I --insecure https://$app_url:$apps_port"
+  curl -I --insecure "https://$app_url:$apps_port"
+  #       HTTP/2 200
+  #       date: Tue, 29 Apr 2025 09:08:16 GMT
+  #       x-envoy-upstream-service-time: 2
+  #       vary: Accept-Encoding
+  #       server: envoy
   echo ""
 }
 
@@ -166,8 +190,8 @@ echo "============================================="
 echo "Demo 1: Creating Hello Amsterdam App by Anton"
 echo "============================================="
 echo ""
-push_app_by_user_in_org anton amsterdam javaA
-check_app_by_user anton amsterdam
+push_app_by_user_in_org "anton@${K8S_CLUSTER_KORIFI}" amsterdam javaA
+check_app_by_user "anton@${K8S_CLUSTER_KORIFI}" amsterdam
 
 
 # Creating Hello Nieuwegein App by Roger
@@ -177,19 +201,20 @@ echo "=============================================="
 echo "Demo 2: Creating Hello Nieuwegein App by Roger"
 echo "=============================================="
 echo ""
-push_app_by_user_in_org roger nieuwegein javaN
-check_app_by_user roger nieuwegein
+push_app_by_user_in_org "roger@${K8S_CLUSTER_KORIFI}" nieuwegein javaN
+check_app_by_user "roger@${K8S_CLUSTER_KORIFI}" nieuwegein
 
 # Creating Hello Utrecht App by Roger
-A
 echo ""
 echo ""
 echo "===================================================="
 echo "Demo 3: Atttempt to create app in non-accessible org"
 echo "===================================================="
 echo ""
-push_app_by_user_in_org roger utrecht javaU
-check_app_by_user roger nieuwegein
+echo "This demo is supposed to fail!"
+echo ""
+push_app_by_user_in_org "roger@${K8S_CLUSTER_KORIFI}" utrecht javaU
+check_app_by_user "roger@${K8S_CLUSTER_KORIFI}" utrecht
 
 
 # Show apps per user
@@ -234,19 +259,19 @@ function show_all_apps() {
 
 
 echo "Admin:"
-switch_user kind-korifi
+switch_user "${ADMIN_USERNAME}"
 cf target -o org 2>/dev/null
 show_all_apps
 echo ""
 
 echo "Anton:"
-switch_user anton 2>/dev/null
+switch_user "anton@${K8S_CLUSTER_KORIFI}"  2>/dev/null
 cf target -o amsterdam
 show_all_apps
 echo ""
 
 echo "Roger:"
-switch_user roger 2>/dev/null
+switch_user "roger@${K8S_CLUSTER_KORIFI}" 2>/dev/null
 cf target -o vijlen
 show_all_apps
 
@@ -254,7 +279,8 @@ show_all_apps
 # TODO:
 # - roger access app in nieuwegein when target is set to vijlen (result unknown yet)
 
-
+## Switching back to admin 
+switch_user "${ADMIN_USERNAME}"
 
 
 
