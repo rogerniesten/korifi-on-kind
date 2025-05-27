@@ -6,7 +6,7 @@
 
 ## Includes
 scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/utils.sh"
+. "$scriptpath/cf_utils.sh"
 tmp="$scriptpath/tmp"
 mkdir -p "$tmp"
 
