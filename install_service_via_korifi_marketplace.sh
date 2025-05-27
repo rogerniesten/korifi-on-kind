@@ -4,19 +4,27 @@
 #
 
 ## Includes
-scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/utils.sh"
-
-
-strongly_advice_root
-
+scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
+. "$scriptpath/cf_utils.sh"
+tmp="$scriptpath/tmp"
+mkdir -p "$tmp"
 
 
 ##
 ## Config
 ##
-SERVICE_NAME=myservice
+##
+## Config
+##
+prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
+prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
+. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
+# Script should be executed as root (just sudo fails for some commands)
+strongly_advice_root
+sync_k8s_user
+
+SERVICE_NAME=myservice
 
 
 
@@ -25,24 +33,17 @@ SERVICE_NAME=myservice
 ##
 
 # Is KIND kluster running?
-assert "kubectl cluster-info --context kind-korifi | grep 'Kubernetes control plane is running'"
+assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"
 
 # Is Korifi up and running?
+cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
+cf login -u "${ADMIN_USERNAME}" -o org -s space
+cf target -o org -s space
+
 kubectl get pods -n korifi
-#verify TODO: not working correctly
-#assert "kubectl get pods -n korifi | grep 'Running'"
+assert "kubectl get pods -n korifi | grep Running"
+echo "...done"
 
-# get name and ip of korifi controller plane
-CTRLPLANE_NAME='korifi-control-plane'
-echo "Korifi-Control-Plane"
-echo "- name : $CTRLPLANE_NAME"
-CTRLPLANE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CTRLPLANE_NAME")
-echo "- IP   : $CTRLPLANE_IP"
-
-assert "test '$CTRLPLANE_IP' != ''"
-
-# Is helm installed?
-assert helm version
 
 
 ##
@@ -57,8 +58,8 @@ echo " - purge lingering service offering"
 if cf marketplace | grep -q "$SERVICE_NAME"; then
   cf purge-service-offering "$SERVICE_NAME" -f
 fi
-echo " - remove servicebroker"
-cf delete-service-broker mybroker -f
+#>echo " - remove servicebroker"
+#>cf delete-service-broker mybroker -f
 echo " - remove broker-service"
 kubectl delete -f "$scriptpath/broker-service.yaml" --ignore-not-found=true
 echo " - remove broker-deployment"
@@ -68,22 +69,22 @@ echo ""
 ## WORKAROUND
 # For some reason the service brokers corresponding to the services are not correctly removed during cleanup!
 # The following command searches for all services (name, guid, guid of related broker)
-SVCS=$(cf curl /v3/service_offerings | jq '[.resources[] | {name: .name, guid: .guid, broker_guid: .relationships.service_broker.data.guid}]')
+services=$(cf curl /v3/service_offerings | jq '[.resources[] | {name: .name, guid: .guid, broker_guid: .relationships.service_broker.data.guid}]')
 # Then get the gui of the service brokers
-BROKER_GUIDS=$(cf curl /v3/service_brokers | jq '[ .resources[].guid ]')
+broker_guids=$(cf curl /v3/service_brokers | jq '[ .resources[].guid ]')
 # Now filter services for the ones that have related valid broker guid 
-ORPHAN_SVCS=$(echo "$SVCS" | jq --argjson broker_guids "$BROKER_GUIDS" '.[] | select(.broker_guid as $b | $broker_guids | index($b) | not)')
+orphan_services=$(echo "$services" | jq --argjson broker_guids "$broker_guids" '.[] | select(.broker_guid as $b | $broker_guids | index($b) | not)')
 echo " - remove orphaned service offerings (workaround)"
 echo -n "   DEBUG:"
-echo "$ORPHAN_SVCS" | jq -c
+echo "$orphan_services" | jq -c
 # Now loop over all orphans and remove them
-echo "$ORPHAN_SVCS" | jq -c | while read -r svc; do
+echo "$orphan_services" | jq -c | while read -r svc; do
   #echo "Processing: $svc"
-  ORPHAN_NAME=$(echo "$svc" | jq -r '.name')
-  BROKER_GUID=$(echo "$svc" | jq -r '.broker_guid')
-  BROKER_NAME=$(echo "$BROKER_GUIDS" | jq -r --arg guid "$BROKER_GUID" '.[] | select(.guid == $guid) | .name')
-  echo "   -> Purging orphaned service offering: $ORPHAN_NAME (broker guid: $BROKER_GUID, broker name: $BROKER_NAME)"
-  cf purge-service-offering "$ORPHAN_NAME" -b "$BROKER_NAME" -f
+  orphan_name=$(echo "$svc" | jq -r '.name')
+  broker_guid=$(echo "$svc" | jq -r '.broker_guid')
+  broker_name=$(echo "$broker_guids" | jq -r --arg guid "$broker_guid" '.[] | select(.guid == $guid) | .name')
+  echo "   -> Purging orphaned service offering: $orphan_name (broker guid: $broker_guid, broker name: $broker_name)"
+  cf purge-service-offering "$orphan_name" -b "$broker_name" -f
 done
 
 echo " - waiting for completion"
@@ -122,21 +123,6 @@ echo ""
 #	- Open Service Broker for Azure / GCP			Includes MySQL support, works with Kubernetes.	         	https://github.com/Azure/open-service-broker-azure
 #	- OSB-Brokerpak from Terraform 				More advanced — supports MySQL via Terraform infrastructure.	https://github.com/cloudfoundry-incubator/terraform-provider-servicebroker
 
-## Includes
-scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/utils.sh"
-
-
-
-##
-## Config
-##
-
-
-
-strongly_advice_root
-
-
 
 
 # Prepare folder for git repositories
@@ -168,6 +154,7 @@ CONTAINER_NAME="my-service-broker"
 # Wait until my-service-broker container is up&running
 #echo -n "Waiting for $CONTAINER_NAME to be running."
 #until [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null)" == "true" ]; do
+
 #  echo -n "."
 #  sleep 1
 #done
@@ -225,20 +212,20 @@ echo "All pods are ready. Proceeding with next steps..."
 ## Test from within the K8s cluster
 
 # Get the Name and IP of the broker pod
-BROKER_NAME=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" | grep "^${CONTAINER_NAME}")
-echo "Broker-name : $BROKER_NAME"
-BROKER_IP=$(kubectl get pod "${BROKER_NAME}" -o jsonpath='{.status.podIP}')
+broker_name=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" | grep "^${CONTAINER_NAME}")
+echo "Broker-name : $broker_name"
+broker_ip=$(kubectl get pod "${broker_name}" -o jsonpath='{.status.podIP}')
 
 # WORKAROUND:
 # Apparently the pod is NOT given an IP immediately after the pod is created.
 # Therefore the .status.podIP is not immediately available after the previous kubectl wait command is finished
 # So if the podID is empty, we'll have to retry (potentially a few times)
 x=1
-while [[ "$BROKER_IP" == "" ]];do
+while [[ "$broker_ip" == "" ]];do
   #echo ""
   #echo "pod info:"
   #echo "========"
-  #kubectl get pod ${BROKER_NAME} -o jsonpath='{}'
+  #kubectl get pod $broker_name -o jsonpath='{}'
   #echo ""
   echo -n "Broker-IP not set yet! Waiting $x seconds before retrying ["
   for (( i=0; i<x; i++ )); do
@@ -246,18 +233,18 @@ while [[ "$BROKER_IP" == "" ]];do
     sleep 1
   done
   echo "]"
-  BROKER_IP=$(kubectl get pod "${BROKER_NAME}" -o jsonpath='{.status.podIP}')
+  broker_ip=$(kubectl get pod "$broker_name" -o jsonpath='{.status.podIP}')
   x=$((x*2))
 done
-echo "Broker-IP   : $BROKER_IP"
+echo "Broker-IP   : $broker_ip"
 echo ""
 
 
 # Run a temporary Pod with crul on board to call the catalog api of the catalog
 # Note that IP and port are different! Internal K8s network
-BROKER_CATALOG_URL="http://${BROKER_IP}:3000/v2/catalog"
-echo "Try to reach the broker URL ($BROKER_CATALOG_URL) from witin a k8s pod"
-kubectl run curlpod --image=curlimages/curl -it --rm --restart=Never -- curl -s -u broker:broker "$BROKER_CATALOG_URL" -H 'X-Broker-API-Version: 2.3' | sed -n '1p' | jq
+broker_catalog_url="http://${broker_ip}:3000/v2/catalog"
+echo "Try to reach the broker URL ($broker_catalog_url) from witin a k8s pod"
+kubectl run curlpod --image=curlimages/curl -it --rm --restart=Never -- curl -s -u broker:broker "$broker_catalog_url" -H 'X-Broker-API-Version: 2.3' | sed -n '1p' | jq
 # Expected: same result as mentioned above
 echo ""
 
@@ -266,7 +253,7 @@ echo ""
 # Create the service broker
 #
 echo "Create service broker 'mybroker'..."
-cf -v create-service-broker mybroker broker broker "http://${BROKER_IP}:3000"
+cf -v create-service-broker mybroker broker broker "http://${broker_ip}:3000"
 # Note that the IP and Port must be K8s (Korifi) Internal!!!
 echo "...done"
 echo ""
