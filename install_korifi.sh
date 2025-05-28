@@ -21,7 +21,6 @@ prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
-sync_k8s_user
 
 
 ##
@@ -48,6 +47,8 @@ install_if_missing snap kubectl snap
 
 install_go_if_missing "${GO_VERSION}"
 
+# Make sure kubenetes user and cf account are in sync
+sync_k8s_user
 
 ## TODO: DO SOME CHECKS FOR PREREQUISITS !!!
 
