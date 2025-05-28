@@ -168,7 +168,7 @@ function install_if_missing() {
     snap)	sudo snap install "$package" 
 	    	result=$?
 		if [[ "$result" -eq "1" ]]; then
-		  echo "retry with --clasic..."
+		  echo "retry with --classic..."
 		  sudo snap install "$package" --classic
 		fi
 		;;
