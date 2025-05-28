@@ -120,7 +120,6 @@ After the installation of Korifi, the scripts sets the api, logs in as cf-admin 
 - https://github.com/cloudfoundry/korifi/blob/main/INSTALL.md
 
 ### Lessons learned:
-
 #### Ports
 Although most parts of the install_korifi.sh script are identical for both K8s clustertypes (KIND, AKS), the architectural nature of KIND forces some differences regarding ports.
 Apperantly the api port is hardcoded to port 80/443, the gateway ports (for apps) are configured via helm parameters networking.gatewayPorts.http and networking.gatewayPorts.https, which default to 80/443 as well.
@@ -249,7 +248,7 @@ sources:
 - https://dzone.com/articles/deploying-python-and-java-applications-to-kubernet
 
 
-## Demo 5: Combine apps (generated with buildpacks) in different organizations in Korifi with restricted userrights
+## Demo: Combine apps (generated with buildpacks) in different organizations in Korifi with restricted userrights
 This demo combines the two previous demos to get a better understanding of them. This also deepens the demo about restricted orgs regarding only seeing (or not seeing) a specific organization in Korifi.
 For this deme we  use same the java webapp as the previous demo. To distinguish between the webapps in the different orgs, a slightly modified copy of the webapp is made for each org. The modified app will not output "Hello World!", but "Hello Amsterdam!" etc.
 
@@ -261,8 +260,9 @@ Prerequisits:
 
 Instructions:
 ```
-# install korifi, if not done yet:
-$ ./install_korifi.sh
+# Deploy a K8s cluster (choose one):
+$ ./deploy_kind.sh
+$ ./deploy_aks.sh
 
 # Create required orgs, users and roles
 $ ./demo_korifi_users_and_rbac.sh
@@ -283,9 +283,7 @@ Then user roger pushes the webapp HelloUtrecht to org Utrecht, where user roger 
 As a last demo all apps will be shown per user (admin (kind-korifi), anton, roger).
 
 
-## Demo 2: Install a 3rd party functionality as service via the korifi marketplace
-TODO: This demo still needs to be refactored and tested on both KIND and AKS!
-
+## Demo: Install a 3rd party functionality as service via the korifi marketplace
 This example described how to install a dummy service via a OSBAPI compatible service-broker using the korifi marketplace. First attempt was to create a 'real' service (e.g. mysql), but there were too many issues (probably due to lack of understanding at that point) and deplicated repositories. Therefore the service broker https://github.com/cloudfoundry-community/worlds-simplest-service-broker was used with a dummy service.
 
 Prerequisits:
@@ -301,17 +299,17 @@ $ ./deploy_aks.sh
 $ ./install_korifi.sh
 
 # then install a service broker and activate a service
-$ install_service_via_korifi_marketplace.sh
+$ demo_service_via_korifi_marketplace.sh
 ```
 
-After a check for prerequisits, the world-simplest-service-broker is installed in kubernetes. Please note that the instructions in the repository are to install it in docker. As the docker network is not available by default in the underlying kubernetes cluster (kind), the instructions have been altered to install the service broker in kubernetes, so it is directly available from the kubernetes pods. For this purpose, the files broker-deployment.yaml and broker-service.yaml have been created.
+After a check for prerequisits, the world-simplest-service-broker is installed in kubernetes. Please note that there are some behaviour to be concidered when executing this demo on a Korifi cluster in KIND. As the docker network is not available by default in the underlying kubernetes cluster (kind), the instructions have been altered to install the service broker in kubernetes, so it is directly available from the kubernetes pods. For this purpose, the files broker-deployment.yaml and broker-service.yaml have been created.
 Then name and IP of the pod of the service-broker will be retrieved (as they are dynamically created) to compose the URL for the service-broker 
 The service-broker must be reachable from pods in korifi (so from kubernetes), hence an attempt to access the service-broker URL via curl from a temporary pod
 When all is fine, cf create-service-broker is used to create the service broker
 After the service is enabled (using cf enable-service-access) it is available via the korify marketplace (cf marketplace)
 Finally instances of this service can be created using cf create-service)
 By a final cf service command is shown that the service (instance) is available in korifi.
-Due to the fact that it is a dummy service, no actions can be performed to show it is working.
+Due to the fact that it is a dummy service, no actions can be performed to show this service is actually working.
 
 Sources:
 - https://github.com/cloudfoundry-community/worlds-simplest-service-broker
@@ -322,10 +320,6 @@ Sources:
 - https://docs.cloudfoundry.org/services/examples.html
 - https://github.com/openservicebrokerapi/servicebroker/blob/master/gettingStarted.md
 - https://www.openservicebrokerapi.org/
-
-
-## Demo 6: Create a Korifi cluster in a 'real' Kubernetes cluster (e.g. Azure Kubernetes Service)
-
 
 
 ## Setup network firewall within the korifi cluster
