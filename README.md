@@ -10,10 +10,19 @@ It also contains some scripts to demo some of the functionalities and featurs of
 - 
 
 ## Table of contents
+- [General information](#general-information)
 - [Some usefull sources](#some-useful-sources)
 - [Prerequisits](#prerequisits)
-- [Demo 1: Setup a korifi cluster in kind](#demo-1-setup-a-korifi-cluster-in-kind)
-- ToDo: rest of content / anchors / demos
+- Install Korifi (and Kubernetes)
+   - [Install Korifi #1: Setup a korifi cluster in kind](#install-Korifi-1-setup-a-korifi-cluster-in-kind)
+   - [Install Korifi #2: Setup a korifi cluster on AKS](#install-korifi-2-setup-a-korifi-cluster-on-aks)
+   - [Install Korifi #3: Setup a korifi cluster on KIND the "standard" way](#install-korifi-3-setup-a-korifi-cluster-on-kind-the-standard-way)
+- Demos
+   - [Demo: How to add users that are limited to a specific org](#demo-how-to-add-users-that-are-limited-to-a-specific-org)
+   - [Demo: Create a custom service using buildbacks (kpack)](#demo-create-a-custom-service-using-buildbacks-kpack)
+   - [Demo: Combine apps (generated with buildpacks) in different organizations in Korifi with restricted userrights](#demo-combine-apps-generated-with-buildpacks-in-different-organizations-in-korifi-with-restricted-userrights)
+   - [Demo: Install a 3rd party functionality as service via the korifi marketplace](#demo-install-a-3rd-party-functionality-as-service-via-the-korifi-marketplace)
+   - [Demo: Setup network firewall within the korifi cluster](#setup-network-firewall-within-the-korifi-cluster)
 
 
 ## General information
