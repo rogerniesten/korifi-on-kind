@@ -1,4 +1,4 @@
-# korifi-on-kind
+# Korifi tests and demos
 This repo is made during the investigation of Korifi as a replacement for Cloud Foundry for one of my clients. It contains the installation for Korifi on several platforms:
 - KIND (Kubernetes in Docker) as described on https://github.com/cloudfoundry/korifi/blob/main/INSTALL.kind.md
 - KIND (Kubernetes in Docker), but now as it it would be a "normal" K8s cluster
