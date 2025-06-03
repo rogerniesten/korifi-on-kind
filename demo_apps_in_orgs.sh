@@ -37,7 +37,7 @@ assert helm version
 assert cf --version
 
 # Make sure kubenetes user and cf account are in sync
-sync_k8s_user
+sync_k8s_user "$ADMIN_USERNAME"
 
 
 # Is KIND kluster running?
@@ -144,9 +144,10 @@ check_app_by_user() {
   local username=$1
   local org=$2
   local apps_port="${3:$CF_HTTPS_PORT}"
-  
-  local app_name="${org}-java-app"
-  local app_url=$(cf curl "/v3/apps/$(cf app "$app_name" --guid)/routes" | jq -r '.resources[0].url')
+ 
+  local app_name app_url 
+  app_name="${org}-java-app"
+  app_url=$(cf curl "/v3/apps/$(cf app "$app_name" --guid)/routes" | jq -r '.resources[0].url')
   if [[ -z "$app_url" || "$app_url" == "null" ]]; then
     echo "FAILURE: no valid url ($app_url) can be found for app '$app_name'"
     echo ""
@@ -163,8 +164,8 @@ check_app_by_user() {
   echo "Let's check the app"
   echo "-------------------"
   echo ""
-  echo "cf app $APP_NAME"
-  cf app "$APP_NAME"
+  echo "cf app $app_name"
+  cf app "$app_name"
   echo ""
   
   echo "Call the URL of the app: curl --insecure https://$app_url:$apps_port"

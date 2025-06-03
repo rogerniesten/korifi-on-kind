@@ -22,7 +22,7 @@ prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
-sync_k8s_user
+sync_k8s_user "$ADMIN_USERNAME"
 
 SERVICE_NAME=myservice
 

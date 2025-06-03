@@ -16,7 +16,7 @@ export K8S_TYPE=KIND     					# type: KIND, AKS
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 . .env || { echo "Config ERROR! Script aborted"; exit 1; }	# read config from environment file
-read -p "Press enter to continue or CTRL-C to abort"
+read -r -p "Press enter to continue or CTRL-C to abort"
 
 strongly_advice_root
 

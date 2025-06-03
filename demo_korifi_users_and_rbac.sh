@@ -34,7 +34,7 @@ assert helm version
 assert cf --version
 
 # Make sure kubenetes user and cf account are in sync
-sync_k8s_user
+sync_k8s_user "$ADMIN_USERNAME"
 
 # Is KIND kluster running?
 assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"

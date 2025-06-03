@@ -1,5 +1,5 @@
 #! /bin/bash
-# shellcheck disable=SC2086	# all $SUDOCMD aliasses cause an ignorable error, hence disabling this check for all here
+# shellcheck disable=SC2086,SC2090	# all $SUDOCMD aliasses cause an ignorable error, hence disabling this check for all here
 ##
 ## Installation of a basic Korifi Cluster on AKS (Azure Kubernetes Service)
 
@@ -48,7 +48,7 @@ install_if_missing snap kubectl snap
 install_go_if_missing "${GO_VERSION}"
 
 # Make sure kubenetes user and cf account are in sync
-sync_k8s_user
+sync_k8s_user "$ADMIN_USERNAME"
 
 ## TODO: DO SOME CHECKS FOR PREREQUISITS !!!
 
@@ -123,7 +123,7 @@ echo ""
 
 
 ## Install kpack
-install_kpack
+install_kpack "$KPACK_VERSION"
 
 
 ## Install Contour Gateway
@@ -275,7 +275,6 @@ if [[ "$result" -ne "0" ]]; then echo "Helm deployment of Korifi cluster failed!
 
 # Wait for all pods in the korifi namespace to be ready
 $SUDOCMD kubectl wait --for=condition=Ready pods --all --namespace korifi --timeout=300s
-
 # Verify
 assert cf version
 
@@ -376,16 +375,16 @@ if [[ "${K8S_TYPE^^}" == "KIND" ]];then
   echo ""
   echo "- for api traffic (port 443):"
   echo ""
-  echo "    nohup $SUDO_CMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &"
+  echo "    nohup $SUDOCMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &"
   echo ""
   echo "- for apps traffic (port $CF_HTTP_SPORT):"
   echo ""
-  echo "    nohup $SUDO_CMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi $CF_HTTPS_PORT:$CF_HTTPS_PORT >> forwarding.log 2>&1 &"
+  echo "    nohup $SUDOCMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi $CF_HTTPS_PORT:$CF_HTTPS_PORT >> forwarding.log 2>&1 &"
   echo ""
   echo "$(date): Starting background job for CF API port-forwarding port 443" >>forwarding.log
   echo "$(date): Starting background job for CF APPS port-forwarding port $CF_HTTPS_PORT" >>forwarding.log
-  nohup $SUDO_CMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &
-  nohup $SUDO_CMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi "$CF_HTTPS_PORT:$CF_HTTPS_PORT" >> forwarding.log 2>&1 &
+  nohup $SUDOCMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &
+  nohup $SUDOCMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi "$CF_HTTPS_PORT:$CF_HTTPS_PORT" >> forwarding.log 2>&1 &
   reset	# reset the terminal as it might be scrambled after the nohup & commands
   echo ""
   echo "Background processes regarding port forwarding:"

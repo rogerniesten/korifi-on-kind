@@ -100,7 +100,7 @@ function prompt_if_missing() {
   #echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
   local var_name="$1"
   local var_type="${2^^:-VAR}"     #var, secret
-  local prompt_text="${3:-Enter value for variable '$var_name'}"
+  local prompt_text="${3:-Enter value for variable $var_name}"
   local env_file="${4:-}"
   local validate_fn=${5:-}
 
@@ -110,7 +110,8 @@ function prompt_if_missing() {
 
   #echo "DBG: current value for var $var_name is '$current_value'."
   while [ -z "$current_value" ] || { [ -n "$validate_fn" ] && ! $validate_fn "$current_value"; }; do
-    read $read_params -p "$prompt_text: " current_value
+    # shellcheck disable=SC2229,SC2086
+    read -r $read_params -p "$prompt_text: " current_value
   done
 
   if [[ "${var_type^^}" == "SECRET" ]]; then echo ""; fi	# add linefeed after secret input
@@ -129,10 +130,11 @@ function prompt_if_missing() {
 
 
 function install_if_missing() {
-  local installer="${1:-}"		# installer: apt, dnf, yum, packman, snap, brew (auto means, let the function figure out...)
-  local tool="$2"			# name of the tool (or keyword 'package' in case of a command-less package)
-  local package="${3:-$tool}"		# package to be installed 
-  local verify_cmd=$(trim "${4:-}")	# optional
+  local installer tool package verify_cmd
+  installer="${1:-}"		# installer: apt, dnf, yum, packman, snap, brew (auto means, let the function figure out...)
+  tool="$2"			# name of the tool (or keyword 'package' in case of a command-less package)
+  package="${3:-$tool}"		# package to be installed 
+  verify_cmd=$(trim "${4:-}")	# optional
 
   hash -r  # Clear cached command locations
 

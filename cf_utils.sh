@@ -208,7 +208,7 @@ function switch_user() {
   kubectl config use-context "${username}"
 
   echo " - setting cf api"
-  cf api "https://$CF_API_DOMAIN" --skip-ssl-validation
+  cf api "https://$cf_api_domain" --skip-ssl-validation
   
   echo " - executing cf auth"
   echo "   cf auth '${username}'"

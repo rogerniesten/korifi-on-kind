@@ -60,7 +60,7 @@ install_kind_if_missing
 # Now create a the Kubernetes cluster for Korifi
 echo ""
 echo "Creating K8s cluster '${K8S_CLUSTER_KORIFI}' using kind..."
-$SUDOCMD kind create cluster --name ${K8S_CLUSTER_KORIFI} --config="${K8S_CLUSTER_KORIFI_YAML}" --image "kindest/node:v${K8S_VERSION}"
+$SUDOCMD kind create cluster --name "${K8S_CLUSTER_KORIFI}" --config="${K8S_CLUSTER_KORIFI_YAML}" --image "kindest/node:v${K8S_VERSION}"
 echo "verify result:"
 assert "$SUDOCMD kind get clusters"
 echo "...done"
@@ -76,7 +76,7 @@ echo "...done"
 #	kpack installation might fail because some CRD's are not installed in time
 #	By installing only the CRD parts of kpack first, this issue is bypassed
 #	Therefore kpack is already installed now.
-install_kpack
+install_kpack "$KPACK_VERSION"
 
 
 ##
