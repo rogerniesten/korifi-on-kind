@@ -143,8 +143,8 @@ push_app_by_user_in_org() {
 check_app_by_user() {
   local username=$1
   local org=$2
-  local apps_port="${3:$CF_HTTPS_PORT}"
- 
+  local apps_port="${3:-$CF_HTTPS_PORT}"
+
   local app_name app_url 
   app_name="${org}-java-app"
   app_url=$(cf curl "/v3/apps/$(cf app "$app_name" --guid)/routes" | jq -r '.resources[0].url')
