@@ -223,9 +223,10 @@ echo ""
 echo "Clone the git repo with all sample web apps"
 cd "$scriptpath/.." || exit 99	#switch to the parent folder, where all git repos are located
 git clone https://github.com/sylvainkalache/sample-web-apps
-cd sample-web-apps/java || exit 99
+cd sample-web-apps || exit 99
+APPS_DIR=$(pwd)
 echo ""
-echo "List of current folder ($(pwd)):"
+echo "List of current folder (${APPS_DIR}):"
 ls -la
 
 # Now push the sample java app to korifi
@@ -233,18 +234,18 @@ echo ""
 echo ""
 echo "============================================"
 echo "Demo 1: Push a sample JAVA web app to korifi"
+echo "        (${APPS_DIR}/java)"
 echo "============================================"
 APP_NAME="my-java-app"
+cd "${APPS_DIR}/java"
 echo ""
 echo "cf push $APP_NAME"
 cf push "$APP_NAME"
 echo ""
 
 # Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
-APP_URL=$(cf curl "/v3/apps/$(cf app "$APP_NAME" --guid)/routes" | jq -r '.resources[0].url')
-if ! grep "${APP_URL}" /etc/hosts;then
-  sed -i "s/$CF_APPS_DOMAIN/$CF_APPS_DOMAIN $APP_URL/g" /etc/hosts	# assumption is that the apps domain is already in /etc/hosts (added in install_korifi.sh)
-fi
+app_url=$(cf curl "/v3/apps/$(cf app "$APP_NAME" --guid)/routes" | jq -r '.resources[0].url')
+add_to_etc_hosts "$app_url" "$CF_APPS_DOMAIN"
 
 # let's check the result of the app
 echo ""
@@ -255,15 +256,15 @@ echo "cf app $APP_NAME"
 cf app "$APP_NAME"
 echo ""
 
-echo "Call the URL of the app: curl --insecure https://$APP_URL:$CF_HTTPS_PORT"
-curl --insecure "https://$APP_URL:$CF_HTTPS_PORT"
+echo "Call the URL of the app: curl --insecure https://$app_url:$CF_HTTPS_PORT"
+curl --insecure "https://$app_url:$CF_HTTPS_PORT"
 # Expected:
 #	Hello, World!
 #	Java Version: 21.0.7
 echo ""
 
-echo "Show the headers of the call: curl -I --insecure https://$APP_URL:$CF_HTTPS_PORT"
-curl -I --insecure "https://$APP_URL:$CF_HTTPS_PORT"
+echo "Show the headers of the call: curl -I --insecure https://$app_url:$CF_HTTPS_PORT"
+curl -I --insecure "https://$app_url:$CF_HTTPS_PORT"
 #	HTTP/2 200
 #	date: Tue, 29 Apr 2025 09:08:16 GMT
 #	x-envoy-upstream-service-time: 2
@@ -279,8 +280,10 @@ echo ""
 echo "=============================================="
 echo "Demo 2: Push a sample Python web app to korifi"
 echo "        for a non-pre-installed buildpack"
+echo "        (${APPS_DIR}/python)"
 echo "=============================================="
 APP_NAME="my-python-app"
+cd "${APPS_DIR}/python"
 echo ""
 
 
@@ -311,10 +314,8 @@ cf push "$APP_NAME"
 echo ""
 
 # Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
-APP_URL=$(cf curl "/v3/apps/$(cf app "$APP_NAME" --guid)/routes" | jq -r '.resources[0].url')
-if ! grep "${APP_URL}" /etc/hosts;then
-  sed -i "s/$CF_APPS_DOMAIN/$CF_APPS_DOMAIN $APP_URL/g" /etc/hosts        # assumption is that the apps domain is already in /etc/hosts (added in install_korifi.sh)
-fi
+app_url=$(cf curl "/v3/apps/$(cf app "$APP_NAME" --guid)/routes" | jq -r '.resources[0].url')
+add_to_etc_hosts "$app_url" "$CF_APPS_DOMAIN"
 
 # let's check the result of the app
 echo ""
@@ -324,15 +325,15 @@ echo ""
 cf app "$APP_NAME"
 echo ""
 
-echo "Call the URL of the app: curl --insecure https://$APP_URL:$CF_HTTPS_PORT"
-curl --insecure "https://$APP_URL:$CF_HTTPS_PORT"
+echo "Call the URL of the app: curl --insecure https://$app_url:$CF_HTTPS_PORT"
+curl --insecure "https://$app_url:$CF_HTTPS_PORT"
 # Expected:
 #       Hello, World!
 #       Python version: 3.10.17
 echo ""
 
-echo "Show the headers of the call: curl -I --insecure https://$APP_URL:$CF_HTTPS_PORT"
-curl -I --insecure "https://$APP_URL:$CF_HTTPS_PORT"
+echo "Show the headers of the call: curl -I --insecure https://$app_url:$CF_HTTPS_PORT"
+curl -I --insecure "https://$app_url:$CF_HTTPS_PORT"
 # Expected:
 #	HTTP/2 200
 #	server: envoy

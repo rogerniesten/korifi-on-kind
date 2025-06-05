@@ -132,11 +132,7 @@ push_app_by_user_in_org() {
 
   # Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
   app_url=$(cf curl "/v3/apps/$(cf app "$app_name" --guid)/routes" | jq -r '.resources[0].url')
-  echo "DBG: app_url=$app_url"
-  if ! grep "${app_url}" /etc/hosts >/dev/null;then
-    echo "DBG: adding app url to line."
-    sed -i "s/$CF_APPS_DOMAIN/$CF_APPS_DOMAIN $app_url/g" /etc/hosts      # assumption is that the apps domain is already in /etc/hosts (added in install_korifi.sh)
-  fi
+  add_to_etc_hosts "$app_url" "$CF_APPS_DOMAIN"
 }
 
 

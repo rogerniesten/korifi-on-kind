@@ -506,7 +506,7 @@ KORIFI_IP=$(kubectl get service envoy-korifi -n korifi-gateway -ojsonpath='{.sta
 echo ""
 echo "Add following to /etc/hosts for every machine you want to access the K8S cluster from:"
 echo "${KORIFI_IP}      api.${BASE_DOMAIN}"
-echo "${KORIFI_IP}	api.${BASE_DOMAIN}" >>/etc/hosts
+add_to_etc_hosts "${KORIFI_IP}	api.${BASE_DOMAIN}"
 echo ""
 
 # Add a HTTPRoute to Kubernetes to use korifi-api

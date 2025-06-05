@@ -311,7 +311,7 @@ if grep "${CF_API_DOMAIN}" /etc/hosts;then
   sed -i "s/.*	${CF_API_DOMAIN}/${KORIFI_IP}	${CF_API_DOMAIN}/g" /etc/hosts
 else
   # add new entry
-  echo "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN	# for korifi cluster $K8S_CLUSTER_KORIFI" >>/etc/hosts
+  add_to_etc_hosts "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN	# for korifi cluster $K8S_CLUSTER_KORIFI"
   echo "(already done for this machine)"
 fi
 echo ""
