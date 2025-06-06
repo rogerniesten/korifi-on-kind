@@ -228,7 +228,7 @@ function add_to_etc_hosts() {
   if [[ -z "$search_string" ]]; then
     # add a new line with the given add_string at the end of the file
     echo "DBG: Adding as new line"
-    echo "$add_string" >>/etc/hosts
+    echo "$add_string" | $SUDOCMD tee -a /etc/hosts > /dev/null
 
   else
     # add the add_string to the line(s) where the search_string is found,
@@ -241,11 +241,11 @@ function add_to_etc_hosts() {
       case "${before_or_after^^}" in
         "BEFORE") 
 		echo "adding '$add_string' BEFORE '$search_string'"
-		sed -i "s/$search_string/$add_string $search_string/" /etc/hosts
+		$SUDOCMD sed -i "s/$search_string/$add_string $search_string/" /etc/hosts
 		;;
         "AFTER")
 		echo "adding '$add_string' AFTER '$search_string'"
-		sed -i "s/$search_string/$search_string $add_string/" /etc/hosts
+		$SUDOCMD sed -i "s/$search_string/$search_string $add_string/" /etc/hosts
 		;;
 	*) "DBG: Invalid direction '$before_or_after'. No changes made!"
       esac

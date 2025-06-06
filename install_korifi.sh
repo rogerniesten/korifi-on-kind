@@ -274,7 +274,7 @@ if [[ "$result" -ne "0" ]]; then echo "Helm deployment of Korifi cluster failed!
 
 
 # Wait for all pods in the korifi namespace to be ready
-$SUDOCMD kubectl wait --for=condition=Ready pods --all --namespace korifi --timeout=300s
+kubectl wait --for=condition=Ready pods --all --namespace korifi --timeout=450s
 # Verify
 assert cf version
 
@@ -308,7 +308,7 @@ echo "Add following to /etc/hosts for every machine you want to access the K8S c
 echo "${KORIFI_IP}	$CF_API_DOMAIN  $CF_APPS_DOMAIN # for korifi cluster $K8S_CLUSTER_KORIFI"
 if grep "${CF_API_DOMAIN}" /etc/hosts;then
   # replace existing entry
-  sed -i "s/.*	${CF_API_DOMAIN}/${KORIFI_IP}	${CF_API_DOMAIN}/g" /etc/hosts
+  $SUDOCMD sed -i "s/.*	${CF_API_DOMAIN}/${KORIFI_IP}	${CF_API_DOMAIN}/g" /etc/hosts
 else
   # add new entry
   add_to_etc_hosts "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN	# for korifi cluster $K8S_CLUSTER_KORIFI"
