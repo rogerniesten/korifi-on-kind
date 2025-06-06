@@ -50,24 +50,23 @@ install_kind_if_missing
 # Now create a the Kubernetes cluster for Korifi
 echo ""
 echo "Creating K8s cluster '${K8S_CLUSTER_KORIFI}' using kind..."
-echo "TRC: $SUDOCMD kind create cluster --name ${K8S_CLUSTER_KORIFI} --config=${K8S_CLUSTER_KORIFI_YAML} --image kindest/node:v${K8S_VERSION}"
-$SUDOCMD kind create cluster --name "${K8S_CLUSTER_KORIFI}" --config="${K8S_CLUSTER_KORIFI_YAML}" --image "kindest/node:v${K8S_VERSION}"
+echo "TRC: $SUDOCMD kind create cluster --name ${K8S_CLUSTER_KORIFI} --config=${K8S_CLUSTER_KORIFI_YAML} --image kindest/node:v${K8S_VERSION} --kubeconfig ~/.kube/config"
+$SUDOCMD kind create cluster --name "${K8S_CLUSTER_KORIFI}" --config="${K8S_CLUSTER_KORIFI_YAML}" --image "kindest/node:v${K8S_VERSION}" --kubeconfig ~/.kube/config
 echo "verify result:"
 assert "$SUDOCMD kind get clusters"
 echo "...done"
 echo ""
 
-# Wait for the cluster to be ready
-echo "Waiting for the K8s cluster to be ready..."
-kubectl wait --for=condition=Ready nodes --all --timeout=60s
-echo "...done"
+# kubeconfig is written as root, make it readable to current user
+sudo chown ${USER}:${USER} -R ~/.kube
 
 # Install Calico (for CNI Network Policy support)
 kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
 
-# verify Calico
-kubectl get pods -A -l k8s-app=calico-node
-
+# Wait for the cluster to be ready
+echo "Waiting for the K8s cluster to be ready..."
+kubectl wait --for=condition=Ready nodes --all --timeout=60s
+echo "...done"
 
 echo ""
 echo "======== Kind install finished ========"
