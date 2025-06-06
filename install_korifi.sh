@@ -308,7 +308,7 @@ echo "Add following to /etc/hosts for every machine you want to access the K8S c
 echo "${KORIFI_IP}	$CF_API_DOMAIN  $CF_APPS_DOMAIN # for korifi cluster $K8S_CLUSTER_KORIFI"
 if grep "${CF_API_DOMAIN}" /etc/hosts;then
   # replace existing entry
-  $SUDOCMD sed -i "s/.*	${CF_API_DOMAIN}/${KORIFI_IP}	${CF_API_DOMAIN}/g" /etc/hosts
+  $SUDOCMD sed -i "s/.*	${CF_API_DOMAIN}/${KORIFI_IP}	${CF_API_DOMAIN}/" /etc/hosts
 else
   # add new entry
   add_to_etc_hosts "${KORIFI_IP}	$CF_API_DOMAIN	$CF_APPS_DOMAIN	# for korifi cluster $K8S_CLUSTER_KORIFI"
@@ -370,21 +370,23 @@ EOF
 # The cf api nor k8s load balancer (for apps) is reachable from the host
 # As a workaround, let's run a background process to handle the port forwarding. 
 if [[ "${K8S_TYPE^^}" == "KIND" ]];then
+  forwarding_logfile=forwarding_$(date +"%y%m%d-%H%M").log
+  touch "$forwarding_logfile"
   echo ""
   echo "As a workaround, K8s port-fording is started:"
   echo ""
   echo "- for api traffic (port 443):"
   echo ""
-  echo "    nohup $SUDOCMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &"
+  echo "    nohup $SUDOCMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> ${forwarding_logfile} 2>&1 &"
   echo ""
   echo "- for apps traffic (port $CF_HTTP_SPORT):"
   echo ""
-  echo "    nohup $SUDOCMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi $CF_HTTPS_PORT:$CF_HTTPS_PORT >> forwarding.log 2>&1 &"
+  echo "    nohup $SUDOCMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi $CF_HTTPS_PORT:$CF_HTTPS_PORT >> ${forwarding_logfile} 2>&1 &"
   echo ""
-  echo "$(date): Starting background job for CF API port-forwarding port 443" >>forwarding.log
-  echo "$(date): Starting background job for CF APPS port-forwarding port $CF_HTTPS_PORT" >>forwarding.log
-  nohup $SUDOCMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> forwarding.log 2>&1 &
-  nohup $SUDOCMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi "$CF_HTTPS_PORT:$CF_HTTPS_PORT" >> forwarding.log 2>&1 &
+  echo "$(date): Starting background job for CF API port-forwarding port 443" >> "${forwarding_logfile}"
+  echo "$(date): Starting background job for CF APPS port-forwarding port $CF_HTTPS_PORT" >> "${forwarding_logfile}"
+  nohup $SUDOCMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> "${forwarding_logfile}" 2>&1 &
+  nohup $SUDOCMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi "$CF_HTTPS_PORT:$CF_HTTPS_PORT" >> "${forwarding_logfile}" 2>&1 &
   reset	# reset the terminal as it might be scrambled after the nohup & commands
   echo ""
   echo "Background processes regarding port forwarding:"
@@ -403,7 +405,7 @@ echo "Korifi installation complete."
 echo "---------------------------------------"
 echo "Info:"
 echo " - K8S Cluster:	$K8S_CLUSTER_KORIFI"
-echo " - K8S Domain:	$(az aks list | jq -r ".[] | select(.name == \"$K8S_CLUSTER_KORIFI\") | .azurePortalFqdn")"
+#echo " - K8S Domain:	$(az aks list | jq -r ".[] | select(.name == \"$K8S_CLUSTER_KORIFI\") | .azurePortalFqdn")"
 echo " - API endpoint:  $CF_API_DOMAIN"
 echo " - CF Admin:      $ADMIN_USERNAME"
 echo " - CS IP:		$KORIFI_IP"
