@@ -385,8 +385,8 @@ if [[ "${K8S_TYPE^^}" == "KIND" ]];then
   echo ""
   echo "$(date): Starting background job for CF API port-forwarding port 443" >> "${forwarding_logfile}"
   echo "$(date): Starting background job for CF APPS port-forwarding port $CF_HTTPS_PORT" >> "${forwarding_logfile}"
-  nohup $SUDOCMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> "${forwarding_logfile}" 2>&1 &
-  nohup $SUDOCMD kubectl port-forward -n korifi-gateway --address ::1 svc/envoy-korifi "$CF_HTTPS_PORT:$CF_HTTPS_PORT" >> "${forwarding_logfile}" 2>&1 &
+  nohup $SUDOCMD kubectl port-forward --kubeconfig ~/.kube/config -n korifi --address ::1 svc/korifi-api-svc 443:443 >> "${forwarding_logfile}" 2>&1 &
+  nohup $SUDOCMD kubectl port-forward --kubeconfig ~/.kube/config -n korifi-gateway --address ::1 svc/envoy-korifi "$CF_HTTPS_PORT:$CF_HTTPS_PORT" >> "${forwarding_logfile}" 2>&1 &
   reset	# reset the terminal as it might be scrambled after the nohup & commands
   echo ""
   echo "Background processes regarding port forwarding:"
