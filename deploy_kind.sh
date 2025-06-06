@@ -62,6 +62,11 @@ echo "Waiting for the K8s cluster to be ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=60s
 echo "...done"
 
+# Install Calico (for CNI Network Policy support)
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
+
+# verify Calico
+kubectl get pods -A -l k8s-app=calico-node
 
 
 echo ""
