@@ -23,9 +23,10 @@ strongly_advice_root() {
     # shellcheck disable=SC2016,SC2089	# this is meant to be litterall!
     export SUDOCMD='sudo env "PATH=$PATH"'
   
-    echo "Recommended is to run as root (sudo $). Running as $(whoami) has turned out to cause issues in some cases."
+    echo "Recommended is to run as root (sudo $). Running as non-root user like '$(whoami)' might cause issues."
     echo "Press enter to continue or CTRL-C to exit"
-    read -r
+    echo "Script will continue in 10 seconds."
+    sleep 10
   fi
 }
 
