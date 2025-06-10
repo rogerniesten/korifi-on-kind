@@ -236,6 +236,12 @@ echo "helm upgrade --install korifi https://github.com/cloudfoundry/korifi/relea
     --set=networking.gatewayPorts.https=${CF_HTTPS_PORT} \\
     --set experimental.managedServices.enabled=true \\
     --set=experimental.managedServices.trustInsecureBrokers=true \\
+    --set=helm.hooksImage=${KORIFI_HELM_HOOKSIMAGE} \\
+    --set=api.image="${KORIFI_API_IMAGE}" \\
+    --set=controllers.image=${KORIFI_CONTROLLERS_IMAGE} \\
+    --set=jobTaskRunner.image=${KORIFI_JOBSTASKRUNNER_IMAGE} \\
+    --set=kpackImageBuilder.image=${KORIFI_KPACKBUILDER_IMAGE} \\
+    --set=statefulsetRunner.image=${KORIFI_JOBSTASKRUNNER_IMAGE} \\
     --wait"
 
 helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
@@ -252,6 +258,12 @@ helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/d
     --set=networking.gatewayPorts.https="${CF_HTTPS_PORT}" \
     --set experimental.managedServices.enabled=true \
     --set=experimental.managedServices.trustInsecureBrokers=true \
+    --set=helm.hooksImage="${KORIFI_HELM_HOOKSIMAGE}" \
+    --set=api.image="${KORIFI_API_IMAGE}" \
+    --set=controllers.image="${KORIFI_CONTROLLERS_IMAGE}" \
+    --set=jobTaskRunner.image="${KORIFI_JOBSTASKRUNNER_IMAGE}" \
+    --set=kpackImageBuilder.image="${KORIFI_KPACKBUILDER_IMAGE}" \
+    --set=statefulsetRunner.image="${KORIFI_JOBSTASKRUNNER_IMAGE}" \
     --wait
     # In KIND following params are set different (https://github.com/cloudfoundry/korifi/releases/latest/download/install-korifi-kind.yaml)
     # TODO: In case of issues in KIND with this install script, concider changing the values of these params
