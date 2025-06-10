@@ -332,4 +332,6 @@ Sources:
 
 
 ## Setup network firewall within the korifi cluster
+In CloudFoundry network policies are used as firewalls to control Contaier-to-Container and App-to-Service networking. However, Networking Policies are NOT implemented in Korifi! Since Korifi runs on Kubernetes, networking policies are expected to be handled more natively via Kubernetes Network Policies or other CNI plugins.
+So for Network Policies in Korifi, a CNI plugin like Calico is required. Such a plugin is NOT installed by default. So ```deploy_kind.sh``` and ```deploy_aks.sh``` both had to be enhanced to installed Calico as CNI plugin to support Network Policies in Kubernetes for Korifi.
 
