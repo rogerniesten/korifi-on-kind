@@ -237,7 +237,7 @@ echo "Demo 1: Push a sample JAVA web app to korifi"
 echo "        (${APPS_DIR}/java)"
 echo "============================================"
 APP_NAME="my-java-app"
-cd "${APPS_DIR}/java"
+cd "${APPS_DIR}/java" || exit 99
 echo ""
 echo "cf push $APP_NAME"
 cf push "$APP_NAME"
@@ -283,7 +283,7 @@ echo "        for a non-pre-installed buildpack"
 echo "        (${APPS_DIR}/python)"
 echo "=============================================="
 APP_NAME="my-python-app"
-cd "${APPS_DIR}/python"
+cd "${APPS_DIR}/python" || exit 99
 echo ""
 
 

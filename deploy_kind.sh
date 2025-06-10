@@ -58,7 +58,7 @@ echo "...done"
 echo ""
 
 # kubeconfig is written as root, make it readable to current user
-sudo chown ${USER}:${USER} -R ~/.kube
+sudo chown "${USER}:${USER}" -R ~/.kube
 
 # Install Calico (for CNI Network Policy support)
 kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
