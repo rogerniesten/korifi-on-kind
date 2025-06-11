@@ -84,8 +84,10 @@ function validate_guid() {
 function validate_not_empty() {
   local value="$1"
   if [[ -n "$value" ]]; then
+    echo "DBG: var is NOT empty"
     return 0
   else
+    echo "DBG: var is empty"
     return 1
   fi
 }
@@ -97,24 +99,31 @@ function validate_dummy() {
 
 
 function prompt_if_missing() {
-  #echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
+  echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
   local var_name="$1"
   local var_type="${2^^:-VAR}"     #var, secret
   local prompt_text="${3:-Enter value for variable $var_name}"
   local env_file="${4:-}"
-  local validate_fn=${5:-}
+  local validate_fn=${5:-validate_not_empty}
 
   local current_value="${!var_name}"
   local read_params=""
   if [[ "${var_type^^}" == "SECRET" ]]; then read_params="-s "; fi
 
-  #echo "DBG: current value for var $var_name is '$current_value'."
-  while [ -z "$current_value" ] || { [ -n "$validate_fn" ] && ! $validate_fn "$current_value"; }; do
+  echo "DBG: current value for var $var_name is '$current_value'."
+  # Prompt once if value is missing
+  if [[ -z "$current_value" ]]; then
     # shellcheck disable=SC2229,SC2086
     read -r $read_params -p "$prompt_text: " current_value
-  done
+    [[ "$var_type" == "SECRET" ]] && echo ""
+  fi
 
-  if [[ "${var_type^^}" == "SECRET" ]]; then echo ""; fi	# add linefeed after secret input
+  # Validate if needed (loop until valid)
+  while ! $validate_fn "$current_value"; do
+    # shellcheck disable=SC2229,SC2086
+    read -r $read_params -p "$prompt_text: " current_value
+    if [[ "${var_type^^}" == "SECRET" ]]; then echo ""; fi	# add linefeed after secret input
+  done
 
   export "$var_name"="$current_value"
 
