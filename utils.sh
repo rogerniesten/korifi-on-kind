@@ -25,8 +25,8 @@ strongly_advice_root() {
   
     echo "Recommended is to run as root (sudo $). Running as non-root user like '$(whoami)' might cause issues."
     echo "Press enter to continue or CTRL-C to exit"
-    echo "Script will continue in 10 seconds."
-    sleep 10
+    echo "Script will continue automatically in 10 seconds."
+    read -r -t 10
   fi
 }
 
