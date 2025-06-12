@@ -191,6 +191,8 @@ prompt_if_missing DOCKER_REGISTRY_USERNAME              "var" "Username"								
 prompt_if_missing DOCKER_REGISTRY_PASSWORD              "var" "Password (for ghcr.io use PAT)"						"$DOCKER_REGISTRY_ENV_FILE"
 prompt_if_missing DOCKER_REGISTRY_CONTAINER_REPOSITORY	"var" "Docker Container Registry (e.g. ghcr.io/rogerniesten/korifi)"		"$DOCKER_REGISTRY_ENV_FILE"
 prompt_if_missing DOCKER_REGISTRY_BUILDER_REPOSITORY	"var" "Docker Builder Registry (e.g. ghcr.io/rogerniesten/korifi-kpack-builder"	"$DOCKER_REGISTRY_ENV_FILE"
+prompt_if_missing DOCKER_IMAGE_PREFIX			"var" "Provide the 'prefix' of the images in case you are using a local registry (leave blank for default)" \
+																	"$DOCKER_REGISTRY_ENV_FILE" "validate_dummy"
 
 # dummies are sufficient for pulling images from only public registries and they are required.
 # So ALWAYS create this secret!
@@ -236,12 +238,12 @@ echo "helm upgrade --install korifi https://github.com/cloudfoundry/korifi/relea
     --set=networking.gatewayPorts.https=${CF_HTTPS_PORT} \\
     --set experimental.managedServices.enabled=true \\
     --set=experimental.managedServices.trustInsecureBrokers=true \\
-    --set=helm.hooksImage=${KORIFI_HELM_HOOKSIMAGE} \\
-    --set=api.image="${KORIFI_API_IMAGE}" \\
-    --set=controllers.image=${KORIFI_CONTROLLERS_IMAGE} \\
-    --set=jobTaskRunner.image=${KORIFI_JOBSTASKRUNNER_IMAGE} \\
-    --set=kpackImageBuilder.image=${KORIFI_KPACKBUILDER_IMAGE} \\
-    --set=statefulsetRunner.image=${KORIFI_JOBSTASKRUNNER_IMAGE} \\
+    --set=helm.hooksImage=${DOCKER_IMAGE_PREFIX}${KORIFI_HELM_HOOKSIMAGE} \\
+    --set=api.image="${DOCKER_IMAGE_PREFIX}${KORIFI_API_IMAGE}" \\
+    --set=controllers.image=${DOCKER_IMAGE_PREFIX}${KORIFI_CONTROLLERS_IMAGE} \\
+    --set=jobTaskRunner.image=${DOCKER_IMAGE_PREFIX}${KORIFI_JOBSTASKRUNNER_IMAGE} \\
+    --set=kpackImageBuilder.image=${DOCKER_IMAGE_PREFIX}${KORIFI_KPACKBUILDER_IMAGE} \\
+    --set=statefulsetRunner.image=${DOCKER_IMAGE_PREFIX}${KORIFI_JOBSTASKRUNNER_IMAGE} \\
     --wait"
 
 helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
@@ -258,12 +260,12 @@ helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/d
     --set=networking.gatewayPorts.https="${CF_HTTPS_PORT}" \
     --set experimental.managedServices.enabled=true \
     --set=experimental.managedServices.trustInsecureBrokers=true \
-    --set=helm.hooksImage="${KORIFI_HELM_HOOKSIMAGE}" \
-    --set=api.image="${KORIFI_API_IMAGE}" \
-    --set=controllers.image="${KORIFI_CONTROLLERS_IMAGE}" \
-    --set=jobTaskRunner.image="${KORIFI_JOBSTASKRUNNER_IMAGE}" \
-    --set=kpackImageBuilder.image="${KORIFI_KPACKBUILDER_IMAGE}" \
-    --set=statefulsetRunner.image="${KORIFI_JOBSTASKRUNNER_IMAGE}" \
+    --set=helm.hooksImage="${DOCKER_IMAGE_PREFIX}${KORIFI_HELM_HOOKSIMAGE}" \
+    --set=api.image="${DOCKER_IMAGE_PREFIX}${KORIFI_API_IMAGE}" \
+    --set=controllers.image="${DOCKER_IMAGE_PREFIX}${KORIFI_CONTROLLERS_IMAGE}" \
+    --set=jobTaskRunner.image="${DOCKER_IMAGE_PREFIX}${KORIFI_JOBSTASKRUNNER_IMAGE}" \
+    --set=kpackImageBuilder.image="${DOCKER_IMAGE_PREFIX}${KORIFI_KPACKBUILDER_IMAGE}" \
+    --set=statefulsetRunner.image="${DOCKER_IMAGE_PREFIX}${KORIFI_JOBSTASKRUNNER_IMAGE}" \
     --wait
     # In KIND following params are set different (https://github.com/cloudfoundry/korifi/releases/latest/download/install-korifi-kind.yaml)
     # TODO: In case of issues in KIND with this install script, concider changing the values of these params
