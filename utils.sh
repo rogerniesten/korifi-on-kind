@@ -11,6 +11,7 @@ SUDOCMD=""	# default value
 # switch to sudo if not done yet
 #
 strongly_advice_root() {
+  local timeout=${1:-10}
 
   if [[ "$(id -u)" -eq 0 ]];then
     echo "Running as root, so all fine."
@@ -23,9 +24,10 @@ strongly_advice_root() {
     # shellcheck disable=SC2016,SC2089	# this is meant to be litterall!
     export SUDOCMD='sudo env "PATH=$PATH"'
   
-    echo "Recommended is to run as root (sudo $). Running as $(whoami) has turned out to cause issues in some cases."
+    echo "Recommended is to run as root (sudo $). Running as non-root user like '$(whoami)' might cause issues."
     echo "Press enter to continue or CTRL-C to exit"
-    read -r
+    echo "Script will continue automatically in $timeout seconds."
+    read -r -t "$timeout"
   fi
 }
 
@@ -99,7 +101,7 @@ function validate_dummy() {
 
 
 function prompt_if_missing() {
-  echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
+  #echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
   local var_name="$1"
   local var_type="${2^^:-VAR}"     #var, secret
   local prompt_text="${3:-Enter value for variable $var_name}"
@@ -110,7 +112,7 @@ function prompt_if_missing() {
   local read_params=""
   if [[ "${var_type^^}" == "SECRET" ]]; then read_params="-s "; fi
 
-  echo "DBG: current value for var $var_name is '$current_value'."
+  #echo "DBG: current value for var $var_name is '$current_value'."
   # Prompt once if value is missing
   if [[ -z "$current_value" ]]; then
     # shellcheck disable=SC2229,SC2086
