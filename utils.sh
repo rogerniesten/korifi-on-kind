@@ -86,10 +86,10 @@ function validate_guid() {
 function validate_not_empty() {
   local value="$1"
   if [[ -n "$value" ]]; then
-    echo "DBG: var is NOT empty"
+    #echo "DBG: var is NOT empty"
     return 0
   else
-    echo "DBG: var is empty"
+    #echo "DBG: var is empty"
     return 1
   fi
 }
