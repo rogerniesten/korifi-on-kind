@@ -223,19 +223,19 @@ function add_to_etc_hosts() {
   local search_string="$2"
   local before_or_after="${3:-AFTER}"
 
-  echo "DBG: add_to-etc_hosts('$1', '$2', '$3') - START"
+  #echo "DBG: add_to-etc_hosts('$1', '$2', '$3') - START"
 
   if [[ -z "$search_string" ]]; then
     # add a new line with the given add_string at the end of the file
-    echo "DBG: Adding as new line"
+    #echo "DBG: Adding as new line"
     echo "$add_string" | $SUDOCMD tee -a /etc/hosts > /dev/null
 
   else
     # add the add_string to the line(s) where the search_string is found,
     # before or after the search_string
-    echo "DBG: relevant line in /etc/hosts:"
-    grep "${search_string}" /etc/hosts
-    echo "---"
+    #echo "DBG: relevant line in /etc/hosts:"
+    #grep "${search_string}" /etc/hosts
+    #echo "---"
     if ! grep "${add_string}" /etc/hosts >/dev/null; then
       echo "DBG: Adding '$add_string' to above mentioned line"
       case "${before_or_after^^}" in
@@ -247,13 +247,13 @@ function add_to_etc_hosts() {
 		echo "adding '$add_string' AFTER '$search_string'"
 		$SUDOCMD sed -i "s/$search_string/$search_string $add_string/" /etc/hosts
 		;;
-	*) "DBG: Invalid direction '$before_or_after'. No changes made!"
+	*) "WARNING: Invalid direction '$before_or_after'. No changes made!"
       esac
     else
-      echo "DBG: string '$add_string' already present, no need to add"
+      echo "WARNING: string '$add_string' already present, no need to add"
     fi
-    echo "DBG: Result:"
-    grep "${search_string}" /etc/hosts
+    #echo "DBG: Result:"
+    #grep "${search_string}" /etc/hosts
     echo ""
   fi
 }

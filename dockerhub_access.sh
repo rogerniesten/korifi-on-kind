@@ -20,7 +20,6 @@ scriptpath="$(dirname "${BASH_SOURCE[0]}")"
 mode=${1^^}
 docker_hub_domain=registry-1.docker.io
 
-#. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root 1
