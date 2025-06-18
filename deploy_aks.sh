@@ -117,7 +117,7 @@ show_instructions() {
 until [ $ATTEMPT -gt $MAX_ATTEMPTS ]
 do
   # Attempt login using Service Principal
-  echo "Attempt to login: az login --service-principal -u \"$AZ_APP_ID\" -p \"*******************\" --tenant \"$AZ_TENANT_ID\""
+  echo "Attempt to login: az login --service-principal -u \"$AZ_APP_ID\" -p \"${AZ_CLIENT_SECRET:0:4}*******************\" --tenant \"$AZ_TENANT_ID\""
   LOGIN_OUTPUT=$(az login --service-principal -u "$AZ_APP_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID" 2>&1)
   LOGIN_SUCCESSFUL=$?
 
