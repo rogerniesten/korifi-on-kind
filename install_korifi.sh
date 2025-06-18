@@ -11,13 +11,13 @@ scriptpath="$(dirname "${BASH_SOURCE[0]}")"
 tmp="$scriptpath/tmp"
 mkdir -p "$tmp"
 
-
 ##
 ## Config
 ##
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 . .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+echo "Using image registry '$LOCAL_IMAGE_REGISTRY_FQDN'"
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -101,25 +101,35 @@ echo ""
 
 
 ## Install Cert Manager
-echo "Installing cert-manager..."
-echo "TRC: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
-kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
-result=$?
-# Wait until all cert-manager pods are ready
-echo "Waiting for cert-manager pods to become ready..."
-while true; do
-  # shellcheck disable=SC2126   # grep -c not possible here as param -v is not combineable with -c
-  NOT_READY=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | grep -v 'Running' | grep -v 'Completed' | wc -l)
-  TOTAL=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | wc -l)
-  if [[ "$TOTAL" -gt 0 && "$NOT_READY" -eq 0 ]]; then
-    echo "✅ All cert-manager pods are ready."
-    break
-  fi
-  echo "⏳ Still waiting... ($((TOTAL - NOT_READY))/$TOTAL ready)"
-  sleep 3
-done
-echo "...done"
-echo ""
+function install_cert_manager() {
+  local local_yaml_file="${1:-$tmp/cert-manager-v$CERT_MANAGER_VERSION.yaml}"
+  echo "Installing cert-manager..."
+  
+  curl -L -o "$local_yaml_file" "https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
+  adjust_images_to_local_registry "$local_yaml_file"
+
+  echo "TRC: kubectl apply -f $local_yaml_file"
+  kubectl apply -f "$local_yaml_file"
+  result=$?
+
+  # Wait until all cert-manager pods are ready
+  echo "Waiting for cert-manager pods to become ready..."
+  while true; do
+    # shellcheck disable=SC2126   # grep -c not possible here as param -v is not combineable with -c
+    NOT_READY=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | grep -v 'Running' | grep -v 'Completed' | wc -l)
+    TOTAL=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | wc -l)
+    if [[ "$TOTAL" -gt 0 && "$NOT_READY" -eq 0 ]]; then
+      echo "✅ All cert-manager pods are ready."
+      break
+    fi
+    echo "⏳ Still waiting... ($((TOTAL - NOT_READY))/$TOTAL ready)"
+    sleep 3
+  done
+  echo "...done"
+  echo ""
+}
+
+install_cert_manager
 
 
 ## Install kpack
@@ -127,12 +137,25 @@ install_kpack "$KPACK_VERSION"
 
 
 ## Install Contour Gateway
-echo "Installing contour gateway..."
-echo "- Contour Gateway Provisioner"
-echo "TRC: kubectl apply -f https://raw.githubusercontent.com/projectcontour/contour/release-${CONTOUR_VERSION}/examples/render/contour-gateway-provisioner.yaml"
-kubectl apply -f "https://raw.githubusercontent.com/projectcontour/contour/release-${CONTOUR_VERSION}/examples/render/contour-gateway-provisioner.yaml"
-echo "- Contour Gateway Class"
-echo "TRC: kubectl apply -f - <<EOF
+function install_contour_gateway() {
+  local version=${1:-$CONTOUR_VERSION}
+
+  echo "Installing contour gateway..."
+  echo "- Contour Gateway Provisioner"
+
+  local contour_release_url="https://raw.githubusercontent.com/projectcontour/contour/release-${version}/examples/render/contour-gateway-provisioner.yaml"
+  local local_contour_file="$tmp/contour-gateway-provisioner-v${version}.yaml"
+
+  echo "Installing kpack..."
+
+  curl -L -o "$local_contour_file" "$contour_release_url"
+  adjust_images_to_local_registry "$local_contour_file"
+
+  echo "TRC: kubectl apply -f $local_contour_file"
+  kubectl apply -f "$local_contour_file"
+
+  echo "- Contour Gateway Class"
+  echo "TRC: kubectl apply -f - <<EOF
 kind: GatewayClass
 apiVersion: gateway.networking.k8s.io/v1beta1
 metadata:
@@ -148,28 +171,36 @@ metadata:
 spec:
   controllerName: projectcontour.io/gateway-controller
 EOF
-#echo "Verify:"
-# TODO: How?
-echo "...done"
-echo ""
+
+  #echo "Verify:"
+  # TODO: How?
+  echo "...done"
+  echo ""
+}
+
+install_contour_gateway
 
 
 ## Install Metrics Server
-kubectl get pods -A | grep metrics-server 1>/dev/null
-metrics_server_installed=$?
-if [[ $metrics_server_installed -eq 0 ]]; then
-  # Metrics server is already installed implicitly on AKS
-  echo "Metrics Server already installed, no action required"
-else
-  echo "Installing Metrics Server..."
-  echo "TRC: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
-  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-  # verify
-  echo "Verify:"
-  # TODO: How?
-  echo "...done"
-fi
-
+function install_metrics_server_if_missing() {
+  kubectl get pods -A | grep metrics-server 1>/dev/null
+  metrics_server_installed=$?
+  if [[ $metrics_server_installed -eq 0 ]]; then
+    # Metrics server is already installed implicitly on AKS
+    echo "Metrics Server already installed, no action required"
+  else
+    local local_metricsserver_file="$tmp/metrics_server_components.yaml"
+    echo "Installing Metrics Server..."
+    curl -L -o "$local_metricsserver_file" "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+    adjust_images_to_local_registry "$local_metricsserver_file"
+    echo "TRC: kubectl apply -f $local_metricsserver_file"
+    kubectl apply -f "$local_metricsserver_file"
+    # verify
+    echo "Verify:"
+    # TODO: How?
+    echo "...done"
+  fi
+}
 
 
 
@@ -190,9 +221,7 @@ prompt_if_missing DOCKER_REGISTRY_SERVER		"var" "Docker Registry Server (e.g. gh
 prompt_if_missing DOCKER_REGISTRY_USERNAME              "var" "Username"								"$DOCKER_REGISTRY_ENV_FILE"
 prompt_if_missing DOCKER_REGISTRY_PASSWORD              "var" "Password (for ghcr.io use PAT)"						"$DOCKER_REGISTRY_ENV_FILE"
 prompt_if_missing DOCKER_REGISTRY_CONTAINER_REPOSITORY	"var" "Docker Container Registry (e.g. ghcr.io/rogerniesten/korifi)"		"$DOCKER_REGISTRY_ENV_FILE"
-prompt_if_missing DOCKER_REGISTRY_BUILDER_REPOSITORY	"var" "Docker Builder Registry (e.g. ghcr.io/rogerniesten/korifi-kpack-builder"	"$DOCKER_REGISTRY_ENV_FILE"
-prompt_if_missing DOCKER_IMAGE_PREFIX			"var" "Provide the 'prefix' of the images in case you are using a local registry (leave blank for default)" \
-																	"$DOCKER_REGISTRY_ENV_FILE" "validate_dummy"
+prompt_if_missing DOCKER_REGISTRY_BUILDER_REPOSITORY	"var" "Docker Builder Registry (e.g. ghcr.io/rogerniesten/korifi-kpack-builder"	"$DOCKER_REGISTRY_ENV_FILE" "validate_dummy"
 
 # dummies are sufficient for pulling images from only public registries and they are required.
 # So ALWAYS create this secret!
@@ -215,7 +244,15 @@ echo ""
 
 
 
-
+if [[ -n "${LOCAL_IMAGE_REGISTRY_FQDN:-}" ]]; then
+  echo "[INFO] Using images from '$LOCAL_IMAGE_REGISTRY'"
+  KORIFI_HELM_HOOKSIMAGE="${LOCAL_IMAGE_REGISTRY_FQDN}/${KORIFI_HELM_HOOKSIMAGE}"
+  KORIFI_API_IMAGE="${LOCAL_IMAGE_REGISTRY_FQDN}/${KORIFI_API_IMAGE}"
+  KORIFI_CONTROLLERS_IMAGE="${LOCAL_IMAGE_REGISTRY_FQDN}/${KORIFI_CONTROLLERS_IMAGE}"
+  KORIFI_JOBSTASKRUNNER_IMAGE="${LOCAL_IMAGE_REGISTRY_FQDN}/${KORIFI_JOBSTASKRUNNER_IMAGE}"
+  KORIFI_KPACKBUILDER_IMAGE="${LOCAL_IMAGE_REGISTRY_FQDN}/${KORIFI_KPACKBUILDER_IMAGE}"
+  KORIFI_STATEFULSETRUNNER_IMAGE="${LOCAL_IMAGE_REGISTRY_FQDN}/${KORIFI_STATEFULSETRUNNER_IMAGE}"
+fi
 
 echo ""
 echo ""
@@ -238,12 +275,12 @@ echo "helm upgrade --install korifi https://github.com/cloudfoundry/korifi/relea
     --set=networking.gatewayPorts.https=${CF_HTTPS_PORT} \\
     --set experimental.managedServices.enabled=true \\
     --set=experimental.managedServices.trustInsecureBrokers=true \\
-    --set=helm.hooksImage=${DOCKER_IMAGE_PREFIX}${KORIFI_HELM_HOOKSIMAGE} \\
-    --set=api.image="${DOCKER_IMAGE_PREFIX}${KORIFI_API_IMAGE}" \\
-    --set=controllers.image=${DOCKER_IMAGE_PREFIX}${KORIFI_CONTROLLERS_IMAGE} \\
-    --set=jobTaskRunner.image=${DOCKER_IMAGE_PREFIX}${KORIFI_JOBSTASKRUNNER_IMAGE} \\
-    --set=kpackImageBuilder.image=${DOCKER_IMAGE_PREFIX}${KORIFI_KPACKBUILDER_IMAGE} \\
-    --set=statefulsetRunner.image=${DOCKER_IMAGE_PREFIX}${KORIFI_JOBSTASKRUNNER_IMAGE} \\
+    --set=helm.hooksImage=${KORIFI_HELM_HOOKSIMAGE} \\
+    --set=api.image=${KORIFI_API_IMAGE} \\
+    --set=controllers.image=${KORIFI_CONTROLLERS_IMAGE} \\
+    --set=jobTaskRunner.image=${KORIFI_JOBSTASKRUNNER_IMAGE} \\
+    --set=kpackImageBuilder.image=${KORIFI_KPACKBUILDER_IMAGE} \\
+    --set=statefulsetRunner.image=${KORIFI_STATEFULSETRUNNER_IMAGE} \\
     --wait"
 
 helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
@@ -260,13 +297,14 @@ helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/d
     --set=networking.gatewayPorts.https="${CF_HTTPS_PORT}" \
     --set experimental.managedServices.enabled=true \
     --set=experimental.managedServices.trustInsecureBrokers=true \
-    --set=helm.hooksImage="${DOCKER_IMAGE_PREFIX}${KORIFI_HELM_HOOKSIMAGE}" \
-    --set=api.image="${DOCKER_IMAGE_PREFIX}${KORIFI_API_IMAGE}" \
-    --set=controllers.image="${DOCKER_IMAGE_PREFIX}${KORIFI_CONTROLLERS_IMAGE}" \
-    --set=jobTaskRunner.image="${DOCKER_IMAGE_PREFIX}${KORIFI_JOBSTASKRUNNER_IMAGE}" \
-    --set=kpackImageBuilder.image="${DOCKER_IMAGE_PREFIX}${KORIFI_KPACKBUILDER_IMAGE}" \
-    --set=statefulsetRunner.image="${DOCKER_IMAGE_PREFIX}${KORIFI_JOBSTASKRUNNER_IMAGE}" \
+    --set=helm.hooksImage="${KORIFI_HELM_HOOKSIMAGE}" \
+    --set=api.image="${KORIFI_API_IMAGE}" \
+    --set=controllers.image="${KORIFI_CONTROLLERS_IMAGE}" \
+    --set=jobTaskRunner.image="${KORIFI_JOBSTASKRUNNER_IMAGE}" \
+    --set=kpackImageBuilder.image="${KORIFI_KPACKBUILDER_IMAGE}" \
+    --set=statefulsetRunner.image="${KORIFI_STATEFULSETRUNNER_IMAGE}" \
     --wait
+
     # In KIND following params are set different (https://github.com/cloudfoundry/korifi/releases/latest/download/install-korifi-kind.yaml)
     # TODO: In case of issues in KIND with this install script, concider changing the values of these params
 #    --set=api.apiServer.url="localhost" \

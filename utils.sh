@@ -103,7 +103,8 @@ function validate_dummy() {
 function prompt_if_missing() {
   #echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
   local var_name="$1"
-  local var_type="${2^^:-VAR}"     #var, secret
+  local var_type="${2:-VAR}"     #var, secret
+  var_type=${var_type^^}
   local prompt_text="${3:-Enter value for variable $var_name}"
   local env_file="${4:-}"
   local validate_fn=${5:-validate_not_empty}
@@ -114,31 +115,44 @@ function prompt_if_missing() {
 
   #echo "DBG: current value for var $var_name is '$current_value'."
   # Prompt once if value is missing
-  if [[ -z "$current_value" ]]; then
+  if [[ -z "$current_value" ]] || ! $validate_fn "$current_value"; then
     # shellcheck disable=SC2229,SC2086
     read -r $read_params -p "$prompt_text: " current_value
     [[ "$var_type" == "SECRET" ]] && echo ""
-  fi
 
-  # Validate if needed (loop until valid)
-  while ! $validate_fn "$current_value"; do
-    # shellcheck disable=SC2229,SC2086
-    read -r $read_params -p "$prompt_text: " current_value
-    if [[ "${var_type^^}" == "SECRET" ]]; then echo ""; fi	# add linefeed after secret input
-  done
+    # Validate if needed (loop until valid)
+    if ! $validate_fn "$current_value"; then
+      while ! $validate_fn "$current_value"; do
+        # shellcheck disable=SC2229,SC2086
+        read -r $read_params -p "$prompt_text: " current_value
+        if [[ "${var_type^^}" == "SECRET" ]]; then echo ""; fi	# add linefeed after secret input
+      done
+    fi
 
-  export "$var_name"="$current_value"
-
-  # Save to env-file
-  if [[ "${var_type^^}" != "SECRET" && -n "${env_file:-}" ]]; then
-    if grep -q "^export $var_name=" "$env_file" 2>/dev/null; then
-      sed -i "s|^export $var_name=.*|export $var_name=\"$current_value\"|" "$env_file"
-    else
-      echo "export $var_name=\"$current_value\"" >> "$env_file"
+    #echo "[DBUG] executing export $var_name=\"$current_value\""	# WARNING: this command shows also secrets on the output!
+    export $var_name="$current_value"
+  
+    # Save to env-file
+    if [[ "${var_type^^}" != "SECRET" && -n "${env_file:-}" ]]; then
+       save_env_var "$var_name" "$current_value" "$env_file"
     fi
   fi
 }
 
+function save_env_var() {
+  local var_name=$1
+  local curr_val=$2
+  local env_file=$3
+
+  # Save to env-file
+  if grep -q "^export $var_name=" "$env_file" 2>/dev/null; then
+    echo "[DBUG] updating var '$var_name' to env file '$env_file'"
+    sed -i "s|^export $var_name=.*|export $var_name=\"$curr_val\"|" "$env_file"
+  else
+    echo "[DBUG] adding var '$var_name' to env file '$env_file'"
+    echo "export $var_name=\"$curr_val\"" >> "$env_file"
+  fi
+}
 
 function install_if_missing() {
   local installer tool package verify_cmd

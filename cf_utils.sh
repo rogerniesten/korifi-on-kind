@@ -9,12 +9,54 @@ scriptpath="$(dirname "${BASH_SOURCE[0]}")"
 . "$scriptpath/utils.sh"
 
 
+function adjust_images_to_local_registry() {
+  echo "[TRCE] adjust_image_to_local_registry($*) - START"
+  local yaml_file=$1
+  local image_registries=${2:-$DOCKER_IMAGE_REGISTRY,$GHCR_IMAGE_REGISTRY,$QUAY_IMAGE_REGISTRY}
+  local local_registry="${3:-$LOCAL_IMAGE_REGISTRY_FQDN}"
+  local override_tag="${4:-}"
+
+  # validate whether yaml_file exists
+  assert test -f "$yaml_file"
+
+  if [[ -n "${local_registry:-}" ]];then
+    cp "$yaml_file" "${yaml_file}.bak"
+    echo "[DBUG] adjusting for '$image_registries':"
+    while [[ $image_registries ]]; do
+      image_registry=${image_registries%%,*}
+      echo "[DBUG]   ajdjusting images for registry '$image_registry' to '${local_registry}/${image_registry}'"
+      sed -i "s|${image_registry}/|${local_registry}/${image_registry}/|g" "$yaml_file"
+  
+      # Remove the first registry from the list
+      if [[ $image_registries == *,* ]]; then
+        image_registries=${image_registries#*,}
+      else
+        image_registries=""
+      fi
+      echo "[DBUG]   remaining registries: '$image_registries'"
+    done
+
+    # If an override tag is specified, replace all @sha256:... or :<tag> with :<override_tag>
+    if [[ -n "$override_tag" ]]; then
+      echo "[DBUG] overriding all digests and tags with ':$override_tag'"
+      # Replace @sha256:digest with :tag
+      sed -i -E "s|@sha256:[a-f0-9]+|:${override_tag}|g" "$yaml_file"
+      # Replace existing :tag (but not in ports like :8080)
+      sed -i -E "s|:([a-zA-Z0-9._-]+)|:${override_tag}|g" "$yaml_file"
+      # But avoid messing up ports like 8080:80
+      sed -i -E "s|([0-9]+):${override_tag}|\\1|g" "$yaml_file"
+    fi
+
+  fi
+}
+
 
 ## Install kpack
 function install_kpack() {
   local version=${1:-$KPACK_VERSION}
 
   local kpack_release_url="https://github.com/buildpacks-community/kpack/releases/download/v${version}/release-${version}.yaml"
+  local local_kpack_file="$tmp/kpack_release-v${version}.yaml"
   
   # Note: Workaround for kpack installation
   #       kpack installation might fail because some CRD's are not installed in time
@@ -22,9 +64,15 @@ function install_kpack() {
 
   echo "Installing kpack..."
 
+  curl -L -o "$local_kpack_file" "$kpack_release_url"
+  adjust_images_to_local_registry "$local_kpack_file" "" "" "$KPACK_VERSION"
+
   # Step 1: Apply only CRDs (initial apply to install CRDs)
-  echo "TRC: kubectl apply -f <(wget -qO- $kpack_release_url | yq e 'select(.kind == \"CustomResourceDefinition\")')"
-  kubectl apply -f <(wget -qO- "$kpack_release_url" | yq e 'select(.kind == "CustomResourceDefinition")')
+  #< echo "TRC: kubectl apply -f <(wget -qO- $local_kpack_file | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+  #< kubectl apply -f <(wget -qO- "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
+  echo "TRC: kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+  kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
+
 
   # Step 2: Wait for ClusterLifecycle CRD to become available
   echo "Waiting for ClusterLifecycle CRD to be registered..."
@@ -35,8 +83,8 @@ function install_kpack() {
   echo "ClusterLifecycle CRD is now available."
 
   # Step 3: Apply the release again to ensure all resources are created
-  echo "TRC: kubectl apply --filename \"$kpack_release_url\""
-  kubectl apply --filename "$kpack_release_url"
+  echo "TRC: kubectl apply --filename \"$local_kpack_file\""
+  kubectl apply --filename "$local_kpack_file"
 
   # Step 4: Verify kpack
   echo "Waiting for kpack pods are running..."
@@ -227,9 +275,12 @@ function add_to_etc_hosts() {
 
   if [[ -z "$search_string" ]]; then
     # add a new line with the given add_string at the end of the file
-    #echo "DBG: Adding as new line"
-    echo "$add_string" | $SUDOCMD tee -a /etc/hosts > /dev/null
-
+    if ! grep "${add_string}" /etc/hosts >/dev/null; then
+      echo "DBG: Adding as new line"
+      echo "$add_string" | $SUDOCMD tee -a /etc/hosts > /dev/null
+    else
+      echo "DBG: Line already existing ($add_string)"
+    fi
   else
     # add the add_string to the line(s) where the search_string is found,
     # before or after the search_string
