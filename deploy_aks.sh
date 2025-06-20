@@ -81,23 +81,11 @@ install_azure_cli
 
 
 ##
-## Check Azure variables
+## Check Azure credentials and variables
 ##
 
-prompt_if_missing AZ_SUBSCRIPTION_ID "var"    "Enter Azure Subscription ID"          "$AZ_ENV_FILE" validate_guid
-prompt_if_missing AZ_APP_ID          "var"    "Enter Azure Service Principal App ID" "$AZ_ENV_FILE" validate_guid
-prompt_if_missing AZ_CLIENT_SECRET   "secret" "Enter Azure Service Principal Secret" "$AZ_ENV_FILE" validate_not_empty
-prompt_if_missing AZ_TENANT_ID       "var"    "Enter Azure Tenant ID"                "$AZ_ENV_FILE" validate_guid
-
-
-## Azure Service Principal
-
-# Define maximum retry attempts (optional)
-MAX_ATTEMPTS=3
-ATTEMPT=1
-
 # Function to show instructions for creating the Service Principal (if needed)
-show_instructions() {
+function show_instructions() {
   echo ""
   echo "It seems the Service Principal login failed. Please ensure that the Service Principal exists."
   echo "You can create a Service Principal in Azure CLI or via the Azure Portal."
@@ -113,58 +101,76 @@ show_instructions() {
   echo ""
 }
 
-# Keep trying to login, if not function (re-) enter credential os Azure Service Principal
-until [ $ATTEMPT -gt $MAX_ATTEMPTS ]
-do
-  # Attempt login using Service Principal
-  echo "Attempt to login: az login --service-principal -u \"$AZ_APP_ID\" -p \"${AZ_CLIENT_SECRET:0:4}*******************\" --tenant \"$AZ_TENANT_ID\""
-  LOGIN_OUTPUT=$(az login --service-principal -u "$AZ_APP_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID" 2>&1)
-  LOGIN_SUCCESSFUL=$?
+function login_to_azure() {
+   prompt_if_missing AZ_SUBSCRIPTION_ID "var"    "Enter Azure Subscription ID"          "$AZ_ENV_FILE" validate_guid
+   prompt_if_missing AZ_APP_ID          "var"    "Enter Azure Service Principal App ID" "$AZ_ENV_FILE" validate_guid
+   prompt_if_missing AZ_CLIENT_SECRET   "secret" "Enter Azure Service Principal Secret" "$AZ_ENV_FILE" validate_not_empty
+   prompt_if_missing AZ_TENANT_ID       "var"    "Enter Azure Tenant ID"                "$AZ_ENV_FILE" validate_guid
 
-  echo "LOGIN_OUTPUT: $LOGIN_OUTPUT"
-  echo "LOGIN_SUCCESSFUL: $LOGIN_SUCCESSFUL"
+   # Define maximum retry attempts (optional)
+   MAX_ATTEMPTS=3
+   ATTEMPT=1
 
-  # Check if the login was successful
-  if [[ $LOGIN_SUCCESSFUL == 0 ]]; then
-    echo "Service Principal login successful!"
-    break  # Exit loop if login is successful
+   # Keep trying to login, if not function (re-) enter credential os Azure Service Principal
+   until [ $ATTEMPT -gt $MAX_ATTEMPTS ]
+   do
+    # Attempt login using Service Principal
+    echo "Attempt to login: az login --service-principal -u \"$AZ_APP_ID\" -p \"${AZ_CLIENT_SECRET:0:4}*******************\" --tenant \"$AZ_TENANT_ID\""
+    LOGIN_OUTPUT=$(az login --service-principal -u "$AZ_APP_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID" 2>&1)
+    LOGIN_SUCCESSFUL=$?
+
+    echo "LOGIN_OUTPUT: $LOGIN_OUTPUT"
+    echo "LOGIN_SUCCESSFUL: $LOGIN_SUCCESSFUL"
+
+    # Check if the login was successful
+    if [[ $LOGIN_SUCCESSFUL == 0 ]]; then
+      echo "Service Principal login successful!"
+      break  # Exit loop if login is successful
+    fi
+
+    echo "Login attempt $ATTEMPT failed! Details: $LOGIN_OUTPUT"
+    show_instructions
+
+    # Ask the user to press Enter to retry or CTRL+C to abort
+    echo "After creation provide the credentials of the Service Principal or press CTRL_C to abort"
+    read -rp  "App-ID:        " AZ_APP_ID
+    read -srp "Client Secret: " AZ_CLIENT_SECRET
+    echo ""     # to force newline
+    read -rp  "Tenant ID:     " AZ_TENANT_ID
+
+    export AZ_APP_ID=$AZ_APP_ID
+    export AZ_CLIENT_SECRET=$AZ_CLIENT_SECRET
+    export AZ_TENANT_ID=$AZ_TENANT_ID
+
+    # Increment the attempt counter
+    ATTEMPT=$((ATTEMPT + 1))
+  done
+
+  # If login was not successful after max attempts, exit with error
+  if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
+    echo "Failed to login after $MAX_ATTEMPTS attempts."
+    exit 1
   fi
+}
 
-  echo "Login attempt $ATTEMPT failed! Details: $LOGIN_OUTPUT"
 
-  # Show instructions for creating the Service Principal
-  show_instructions
-
-  # Ask the user to press Enter to retry or CTRL+C to abort
-  echo "After creation provide the credentials of the Service Principal or press CTRL_C to abort"
-  read -rp  "App-ID:        " AZ_APP_ID
-  read -srp "Client Secret: " AZ_CLIENT_SECRET
-  echo ""	# to force newline
-  read -rp  "Tenant ID:     " AZ_TENANT_ID
-
-  export AZ_APP_ID=$AZ_APP_ID
-  export AZ_CLIENT_SECRET=$AZ_CLIENT_SECRET
-  export AZ_TENANT_ID=$AZ_TENANT_ID
-
-  # Increment the attempt counter
-  ATTEMPT=$((ATTEMPT + 1))
-done
-
-# If login was not successful after max attempts, exit with error
-if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
-  echo "Failed to login after $MAX_ATTEMPTS attempts."
-  exit 1
+az account show > /dev/null 2>&1
+if [ $? -eq 0 ]; then
+  echo "Already logged in to Azure."
+else
+  echo "Not logged in to Azure yet, let's login now."
+  login_to_azure
 fi
 
 
 echo ""
 echo "Azure Data"
 echo "=========="
-echo "SubscriptionID: $AZ_SUBSCRIPTION_ID"
+echo "SubscriptionID:	$AZ_SUBSCRIPTION_ID"
 echo "Service Principal:"
-echo "	App-ID:         $AZ_APP_ID"
-echo "	Client Secret:  ${AZ_CLIENT_SECRET:0-4}..."
-echo "	Tenant ID:      $AZ_TENANT_ID"
+echo "- App-ID:         $AZ_APP_ID"
+echo "- Client Secret:  ${AZ_CLIENT_SECRET:0-4}..."
+echo "- Tenant ID:      $AZ_TENANT_ID"
 echo ""
 echo "Now we can continue with the creation of the AKS cluster."
 echo ""
