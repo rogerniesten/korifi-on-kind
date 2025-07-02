@@ -12,7 +12,7 @@ scriptpath="$(dirname "${BASH_SOURCE[0]}")"
 function adjust_images_to_local_registry() {
   echo "[TRCE] adjust_image_to_local_registry($*) - START"
   local yaml_file=$1
-  local image_registries=${2:-$DOCKER_IMAGE_REGISTRY,$GHCR_IMAGE_REGISTRY,$QUAY_IMAGE_REGISTRY}
+  local image_registries=${2:-$DOCKER_IMAGE_REGISTRY,$GHCR_IMAGE_REGISTRY,$QUAY_IMAGE_REGISTRY,$K8S_IMAGE_REGISTRY}
   local local_registry="${3:-$LOCAL_IMAGE_REGISTRY_FQDN}"
   local override_tag="${4:-}"
 
@@ -50,6 +50,20 @@ function adjust_images_to_local_registry() {
   fi
 }
 
+function kubectl_apply_locally() {
+  local yaml_url=${1}
+  local filename=$(basename "$yaml_url")
+  local local_yaml=${2:-$tmp/$filename}
+
+  echo "[INFO] Downloading $filename from $yaml_url"
+  curl -sL -o "$local_yaml" "$yaml_url"
+
+  echo "[INFO] Adjusting image references in $filename (if applicable)"
+  adjust_images_to_local_registry "$local_yaml"
+
+  echo "[INFO] Applying $filename"
+  kubectl apply -f "$local_yaml"
+}
 
 ## Install kpack
 function install_kpack() {
