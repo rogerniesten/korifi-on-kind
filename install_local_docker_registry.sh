@@ -55,17 +55,22 @@ prompt_if_missing LOCAL_IMAGE_REGISTRY "var" "Name of local Image Registry in Az
 ##
 
 function publish_image_registry() {
+  echo "[INFO ] Make registry in docker publicly available"
   # get name of resource group
+  echo "[DEBUG] - get name of resource group"
   az_resource_group=$(az vm list --query "[?name=='$(hostname)'].resourceGroup" -o tsv)
   # get the name of the network interface
-  az_network_interface_id=$(az vm show --resource-group $az_resource_group --name $(hostname) --query "networkProfile.networkInterfaces[0].id" -o tsv)
+  echo "[DEBUG] - get name of network interface"
+  az_network_interface_id=$(az vm show --resource-group "$az_resource_group" --name "$(hostname)" --query "networkProfile.networkInterfaces[0].id" -o tsv)
   # get the public IP resource ID
+  echo "[DEBUG] - publicIP resource ID"
   az_public_ip_resource_id=$(az network nic show --ids $az_network_interface_id --query "ipConfigurations[0].publicIPAddress.id" -o tsv)
   # set a domain name
+  echo "[DEBUG] - set domain name"
   az network public-ip update --ids $az_public_ip_resource_id --dns-name "$LOCAL_IMAGE_REGISTRY"
   # verify
   registry_fqdn=$(az network public-ip show --ids $az_public_ip_resource_id --query "dnsSettings.fqdn" -o tsv)
-  echo "Image registry accessible as: $registry_fqdn:5000"
+  echo "[INFO ] Image registry accessible as: $registry_fqdn:5000"
   echo ""
 
   export LOCAL_IMAGE_REGISTRY_FQDN="$registry_fqdn"
@@ -102,10 +107,19 @@ server {
     ssl_certificate /etc/letsencrypt/live/${LOCAL_IMAGE_REGISTRY_FQDN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${LOCAL_IMAGE_REGISTRY_FQDN}/privkey.pem;
 
+    # Required for large layer uploads
+    client_max_body_size 0;
+
     location / {
         proxy_pass http://localhost:5000;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+
+        # Required to support Docker push
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
     }
 }
 
@@ -132,24 +146,26 @@ EOF
 ## Install a local Docker Registry (and give it a name)
 ##
 local_registry_container=$($SUDOCMD docker ps -a --filter name=registry | grep registry)
-echo "Found following registry container in docker:"
+echo "[DEBUG] Found following registry container in docker:"
 echo $local_registry_container
 
-if [[ -n "$local_registry_container" ]]; then
-  if [[ "$local_registry_container" != *"Up "* ]]; then
-    # remove container if not running
-    echo "Cleaning up non-running container."
-    echo $local_registry_container
-    # now remove it
-    $SUDOCMD docker rm registry
-  fi
 
+if [[ -z "$local_registry_container" ]]; then
   # start local registry container in Docker
+  echo "[INFO ] Start docker container 'registry'"
   $SUDOCMD docker run -d -p 5000:5000 --name registry registry:2
-
-  # Show result
-  $SUDOCMD docker ps -a
+elif [[ "$local_registry_container" != *"Up "* ]]; then
+  # restart container if not running
+  echo "[INFO ] Restarting non-running container."
+  echo $local_registry_container
+  # now remove it
+  $SUDOCMD docker restart registry
 fi
+
+# Show result
+echo "[DeBUG] Current containers in docker:"
+$SUDOCMD docker ps -a
+echo "---"
 
 publish_image_registry
 configure_nginx
@@ -160,57 +176,55 @@ configure_nginx
 ## Populate local registry with required images
 ##
 function copy_image_to_local_registry() {
-  local registry=$1
-  local image=$2
-  local target_registry=${3:-$LOCAL_IMAGE_REGISTRY_FQDN}
+  local image=$1
+  local target_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
+  target_registry=localhost:5000	# this doesn't use the internet, but pushes directly to the registry on localhost, which is way faster!
   
-  echo "$SUDOCMD docker pull $image"
+  echo "[TRACE] $SUDOCMD docker pull $image"
   $SUDOCMD docker pull "$image"			# pull the image from docker hub
-  echo "$SUDOCMD docker tag $image ${target_registry}/${image}"
+  echo "{TRACE] $SUDOCMD docker tag $image ${target_registry}/${image}"
   $SUDOCMD docker tag "$image" "${target_registry}/${image}"	# tag the image
-  echo "$SUDOCMD docker push ${target_registry}/${image}"
+  echo "[TRACE] $SUDOCMD docker push ${target_registry}/${image}"
   $SUDOCMD docker push "${target_registry}/${image}"		# push the image to the local hub
 
   # remove the images (from remote and from local)
-  echo "$SUDOCMD docker image rm $image"
-  $SUDOCMD docker image rm "$image"
-  $SUDOCMD docker image rm "${target_registry}/${image}"
+#  echo "$SUDOCMD docker image rm $image"
+#  $SUDOCMD docker image rm "$image"
+#  $SUDOCMD docker image rm "${target_registry}/${image}"
   echo "---------------------"
 }
 
 
 
 # Copy Korifi images from docker.io
-copy_image_to_local_registry "$DOCKER_IMAGE_REGISTRY" "$KORIFI_HELM_HOOKSIMAGE"
-copy_image_to_local_registry "$DOCKER_IMAGE_REGISTRY" "$KORIFI_API_IMAGE"
-copy_image_to_local_registry "$DOCKER_IMAGE_REGISTRY" "$KORIFI_CONTROLLERS_IMAGE"
-copy_image_to_local_registry "$DOCKER_IMAGE_REGISTRY" "$KORIFI_KPACKBUILDER_IMAGE"
-copy_image_to_local_registry "$DOCKER_IMAGE_REGISTRY" "$KORIFI_STATEFULSETRUNNER_IMAGE"
-copy_image_to_local_registry "$DOCKER_IMAGE_REGISTRY" "$KORIFI_JOBSTASKRUNNER_IMAGE"
+copy_image_to_local_registry "$KORIFI_HELM_HOOKSIMAGE"
+copy_image_to_local_registry "$KORIFI_API_IMAGE"
+copy_image_to_local_registry "$KORIFI_CONTROLLERS_IMAGE"
+copy_image_to_local_registry "$KORIFI_KPACKBUILDER_IMAGE"
+copy_image_to_local_registry "$KORIFI_STATEFULSETRUNNER_IMAGE"
+copy_image_to_local_registry "$KORIFI_JOBSTASKRUNNER_IMAGE"
 
 # Copy contour envoy images from docker.io
-copy_image_to_local_registry "$DOCKER_IMAGE_REGISTRY" "$CONTOUR_ENVOY_IMAGE"
+copy_image_to_local_registry "$CONTOUR_ENVOY_IMAGE"
 
 # Copy contour images from ghcr.io
-copy_image_to_local_registry "$GHCR_IMAGE_REGISTRY" "$CONTOUR_CONTOUR_IMAGE"
+copy_image_to_local_registry "$CONTOUR_CONTOUR_IMAGE"
 
 # Copy kpack images from ghcr.io
-copy_image_to_local_registry "$GHCR_IMAGE_REGISTRY" "$KPACK_CONTROLLER_IMAGE"
-copy_image_to_local_registry "$GHCR_IMAGE_REGISTRY" "$KPACK_WEBHOOK_IMAGE"
-copy_image_to_local_registry "$GHCR_IMAGE_REGISTRY" "$KPACK_BUILD_INIT"
-copy_image_to_local_registry "$GHCR_IMAGE_REGISTRY" "$KPACK_BUILD_WAITER"
-copy_image_to_local_registry "$GHCR_IMAGE_REGISTRY" "$KPACK_REBASE"
-copy_image_to_local_registry "$GHCR_IMAGE_REGISTRY" "$KPACK_COMPLETION"
-copy_image_to_local_registry "$GHCR_IMAGE_REGISTRY" "$KPACK_LIVECYCLE"
+copy_image_to_local_registry "$KPACK_CONTROLLER_IMAGE"
+copy_image_to_local_registry "$KPACK_WEBHOOK_IMAGE"
+copy_image_to_local_registry "$KPACK_BUILD_INIT_IMAGE"
+copy_image_to_local_registry "$KPACK_BUILD_WAITER_IMAGE"
+copy_image_to_local_registry "$KPACK_REBASE_IMAGE"
+copy_image_to_local_registry "$KPACK_COMPLETION_IMAGE"
+copy_image_to_local_registry "$KPACK_LIVECYCLE_IMAGE"
 
 
 # Copy cert manager images from quay.io
-copy_image_to_local_registry "$QUAY_IMAGE_REGISTRY" "$CERT_MGR_CONTROLLER_IMAGE"
-copy_image_to_local_registry "$QUAY_IMAGE_REGISTRY" "$CERT_MGR_WEBHOOK_IMAGE"
-copy_image_to_local_registry "$QUAY_IMAGE_REGISTRY" "$CERT_MGR_CAINJECTOR_IMAGE"
-copy_image_to_local_registry "$QUAY_IMAGE_REGISTRY" "$CERT_MGR_ACMESOLVER_IMAGE"
-
-
+copy_image_to_local_registry "$CERT_MGR_CONTROLLER_IMAGE"
+copy_image_to_local_registry "$CERT_MGR_WEBHOOK_IMAGE"
+copy_image_to_local_registry "$CERT_MGR_CAINJECTOR_IMAGE"
+copy_image_to_local_registry "$CERT_MGR_ACMESOLVER_IMAGE"
 
 #
 # End message
