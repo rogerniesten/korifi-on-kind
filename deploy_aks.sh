@@ -236,7 +236,7 @@ function install_azure_kubernetes_cluster() {
 
   # Get credentials
   echo " - Get credentials"
-  az aks get-credentials --resource-group "$resource_group" --name "$aks_name"
+  az aks get-credentials --resource-group "$resource_group" --name "$aks_name" --overwrite-existing
 
   # Wait for node readiness
   echo " - Waiting for node readiness"
