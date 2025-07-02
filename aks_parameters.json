@@ -181,7 +181,7 @@
             "value": 0
         },
         "agentCount": {
-            "value": 3
+            "value": 1
         },
         "scaleSetEvictionPolicy": {
             "value": "Delete"
