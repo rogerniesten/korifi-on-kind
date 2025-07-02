@@ -86,8 +86,39 @@ data:
     disablePermitInsecure: false
     accesslog-format: envoy
 EOF
-
 }
+
+
+function patch_file() {
+  #
+  # This function patches a yaml file from the contour deployment to use images from the local registry
+  #
+  local file=$1
+
+  local CONTOUR_IMAGE_REPO="${LOCAL_IMAGE_REGISTRY_FQDN}/${CONTOUR_CONTOUR_IMAGE}"
+  local ENVOY_IMAGE_REPO="${LOCAL_IMAGE_REGISTRY_FQDN}/${CONTOUR_ENVOY_IMAGE}"
+  local ENVOY_SERVICE_TYPE="LoadBalancer"
+
+  # Replace namespace
+  echo "[TRACE]   sed -i \"s/namespace: projectcontour/namespace: ${namespace}/g\" $file"
+  sed -i "s/namespace: projectcontour/namespace: ${namespace}/g" "$file" || echo "found & updated"
+  test $? && echo "found & updated"
+
+  # Patch contour image
+  echo "[TRACE]   sed -i \"s|image: ghcr.io/projectcontour/contour:.*|image: ${CONTOUR_IMAGE_REPO}|g\" $file"
+  sed -i "s|image: ghcr.io/projectcontour/contour:.*|image: ${CONTOUR_IMAGE_REPO}|g" "$file" || echo "found & updated"
+
+  # Patch envoy image
+  echo "[TRACE]   sed -i \"s|image: docker.io/envoyproxy/envoy:.*|image: ${ENVOY_IMAGE_REPO}|g\" $file"
+  sed -i "s|image: docker.io/envoyproxy/envoy:.*|image: ${ENVOY_IMAGE_REPO}|g" "$file" || echo "found & updated"
+
+  # Patch Envoy service type if set
+  if [[ "$file" == *service-envoy.yaml* ]]; then
+    echo "[TRACE]   sed -i \"s/type: ClusterIP/type: ${ENVOY_SERVICE_TYPE}/g\" $file"
+    sed -i "s/type: ClusterIP/type: ${ENVOY_SERVICE_TYPE}/g" "$file" || echo "found & updated"
+  fi
+}
+
 
 
 ##
@@ -197,328 +228,9 @@ install_kpack "$KPACK_VERSION"
 
 
 ## Install Contour Gateway
-function install_contour_gateway() {
-  install_contour_gateway_static_v5
-  #install_contour_gateway_dynamic
-}
-
-
-function install_contour_gateway_static_v2() {
-  local version=${1:-$CONTOUR_VERSION}
-  local gateway_namespace="$KORIFI_GATEWAY_NAMESPACE"
-#?< shellcheck: unused!  local gateway_name="contour-gateway"
-  local base_url="https://raw.githubusercontent.com/projectcontour/contour/release-${version}/examples/gateway"
-
-  local crds_file="$tmp/contour-crds-v${version}.yaml"
-#< shellcheck: unused!  local contour_file="$tmp/contour-static-install-v${version}.yaml"
-  local gateway_file="$tmp/contour-static-gateway-v${version}.yaml"
-
-  echo "Installing Contour Gateway (static mode)..."
-
-  # Step 1: Create namespace
-  echo "[INFO] Creating namespace '$gateway_namespace'"
-  kubectl create namespace "$gateway_namespace" --dry-run=client -o yaml | kubectl apply -f -
-
-  # Step 2: Download and apply CRDs
-  echo "[INFO] Downloading CRDs from $base_url/00-crds.yaml"
-  curl -L -o "$crds_file" "$base_url/00-crds.yaml"
-  echo "[INFO] Applying CRDs"
-  kubectl apply -f "$crds_file"
-
-  # Step 3: Download and apply Contour (static deployment)
-  kubectl_apply_locally "$base_url/01-contour.yaml"
-
-  # Step 4: Download and apply Gateway object
-  echo "[INFO] Downloading Gateway definition from $base_url/02-gateway.yaml"
-  curl -L -o "$gateway_file" "$base_url/02-gateway.yaml"
-  yq -i ".spec.gatewayClassName = \"$GATEWAY_CLASS_NAME\"" "$gateway_file"
-  echo "[INFO] Applying Gateway object"
-  kubectl apply -f "$gateway_file"
-
-  create_configmap
-
-  # Step 5: Create the GatewayClass manually (static provisioning)
-  echo "[INFO] Creating GatewayClass for static provisioning"
-  kubectl apply -f - <<EOF
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: GatewayClass
-metadata:
-  name: $GATEWAY_CLASS_NAME
-spec:
-  controllerName: projectcontour.io/gateway-controller
-  parametersRef:
-    group: gateway.projectcontour.io
-    kind: ContourDeployment
-    name: static-gateway-config
-EOF
-
-  # Step 6: Dummy ContourDeployment (to satisfy the reference)
-  echo "[INFO] Creating dummy ContourDeployment for GatewayClass (optional)"
-  kubectl apply -f - <<EOF
-apiVersion: gateway.projectcontour.io/v1alpha1
-kind: ContourDeployment
-metadata:
-  name: static-gateway-config
-  namespace: $gateway_namespace
-spec: {}
-EOF
-
-  echo "...Contour static gateway setup complete."
-}
-
-
-function install_contour_gateway_static_v3() {
-  local version=${1:-$CONTOUR_VERSION}
-  local gateway_namespace="projectcontour"
-  local github_dir="examples/gateway"
-  local tmp_dir="${tmp:-./tmp}"
-  mkdir -p "$tmp_dir"
-
-  echo "[INFO] Installing Contour Gateway (static mode, version ${version})"
-
-  # Create namespace (Contour assumes 'projectcontour')
-  echo "[INFO] Creating namespace '$gateway_namespace'"
-  kubectl create namespace "$gateway_namespace" --dry-run=client -o yaml | kubectl apply -f -
-
-  echo "[INFO] Installing Contour Gateway CRDs"
-  kubectl apply -f https://raw.githubusercontent.com/projectcontour/contour/release-${version}/config/crd/generated/contourdeployments.gateway.projectcontour.io.yaml
-  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v0.6.2/standard-install.yaml
-
-  # Get list of files in the release branch's examples/gateway dir
-  local api_url="https://api.github.com/repos/projectcontour/contour/contents/${github_dir}?ref=release-${version}"
-  local files=($(curl -s "$api_url" | jq -r '.[].download_url'))
-
-  if [[ ${#files[@]} -eq 0 ]]; then
-    echo "[ERR] No files found in $github_dir for version $version"
-    return 1
-  fi
-
-  for file_url in "${files[@]}"; do
-
-    kubectl_apply_locally "$file_url"
-
-  done
-
-  create_configmap
-
-  # Create GatewayClass for static provisioning
-  echo "[INFO] Creating GatewayClass for static provisioning"
-  kubectl apply -f - <<EOF
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: GatewayClass
-metadata:
-  name: ${GATEWAY_CLASS_NAME}
-spec:
-  controllerName: projectcontour.io/gateway-controller
-  parametersRef:
-    group: gateway.projectcontour.io
-    kind: ContourDeployment
-    name: static-gateway-config
-EOF
-
-  # Optional: Dummy ContourDeployment for GatewayClass (static mode)
-  echo "[INFO] Creating dummy ContourDeployment (optional for static mode)"
-  kubectl apply -f - <<EOF
-apiVersion: gateway.projectcontour.io/v1alpha1
-kind: ContourDeployment
-metadata:
-  name: static-gateway-config
-  namespace: $gateway_namespace
-spec: {}
-EOF
-
-  echo "[INFO] Contour Gateway static installation complete."
-}
-
-
-function install_contour_gateway_static_v4() {
+function install_contour_gateway_static() {
 ##
-## This version uses Bitname Helmchart for deploying Contour
-##
-## I wasn't able to get it correctly running properly. Came quit a bit, but got stuck 
-## on suggestions from ChatGPT that were meant for the projectContour helm chart. 
-## Although I got quite far, I wasn't able to mount the secret that contains the tls
-## certs as volume in the api-controller pod.
-## So let's try continuing with the projectcontour helm chart in v5.
-##
-  local namespace="${1:-$KORIFI_GATEWAY_NAMESPACE}"
-  local image_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
-  #local contour_version="${3:-}"
-  [[ -z "$contour_version" ]] && contour_version="${CONTOUR_VERSION}.2"
-
-  local contour_version="1.26.2"
-  local envoy_version="1.29.0"
-
-  echo "[INFO] Apply recommended RBAC for Contour Gateway Controller"
-  kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: contour-gateway-controller
-rules:
-  - apiGroups: [""]
-    resources: ["services", "secrets", "endpoints"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["gateway.networking.k8s.io"]
-    resources: ["gatewayclasses", "gateways", "httproutes", "tlsroutes", "referencegrants"]
-    verbs: ["get", "list", "watch", "update", "patch"]
-  - apiGroups: ["projectcontour.io"]
-    resources: ["httpproxies", "extensionservices", "tlscertificatedelegations"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: contour-gateway-controller
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: contour-gateway-controller
-subjects:
-  - kind: ServiceAccount
-    name: default
-    namespace: korifi-gateway
-EOF
-
-
-  ##?? Using static contour deployment, is cert generation now required? If so, can I still use cert manager?!?
-  echo "[INFO] Create TLS certificates for contour"
-  openssl req -x509 -nodes -days 365 \
-    -newkey rsa:2048 \
-    -keyout "$tmp/tls.key" \
-    -out "$tmp/tls.crt" \
-    -subj "/CN=contour/O=contour"
-
-  echo "[INFO] Create Namespace '$namespace'"
-  kubectl get namespace "$namespace" >/dev/null 2>&1 || kubectl create namespace "$namespace"
-
-  echo "[INFO] Create TLS secret for contour"
-  kubectl get secret contour-cert --namespace "$namespace" >/dev/null 2>&1 && kubectl delete secret contour-cert --namespace "$namespace"	# for idempotency
-  kubectl create secret tls contour-cert \
-    --cert="$tmp/tls.crt" \
-    --key="$tmp/tls.key" \
-    --namespace "$namespace"
-
-
-  echo "[INFO] Deploy contour using binami's helm chart"
-
-  echo "[DBUG] Created yaml values file:"
-  cat <<EOF >"$tmp/contour-values.yaml"
-gatewayController:
-  enabled: true
-  controllerName: projectcontour.io/gateway-controller
-  extraVolumes:
-    - name: contour-cert
-      secret:
-        secretName: contour-cert
-  extraVolumeMounts:
-    - name: contour-cert
-      mountPath: /certs
-      readOnly: true
-
-contour:
-  image:
-    repository: ghcr.io/projectcontour/contour
-    tag: v$contour_version
-  namespace: $namespace
-
-envoy:
-  image:
-    repository: index.docker.io/envoyproxy/envoy
-    tag: v$envoy_version
-  service:
-    type: LoadBalancer
-
-global:
-  imageRegistry: $image_registry
-  security:
-    allowInsecureImages: true
-
-
-EOF
-  cat "$tmp/contour-values.yaml"
-
-
-  echo "[DBUG] helm upgrade --install $KORIFI_GATEWAY_DEPLOYMENT oci://index.docker.io/bitnamicharts/contour     \\
-	    --namespace $namespace \\
-	    -f $tmp/contour-values.yaml \\
-	    --wait"
-  helm upgrade --install $KORIFI_GATEWAY_DEPLOYMENT oci://index.docker.io/bitnamicharts/contour     \
-    --namespace "$namespace" \
-    -f "$tmp/contour-values.yaml" \
-    --wait
-
-  echo "[INFO] Deploy CRDs (GatewayClass, Gateway, HTTPRoute, TLSRoute, etc.)"
-  kubectl_apply_locally https://github.com/kubernetes-sigs/gateway-api/releases/download/v0.7.1/experimental-install.yaml
-
-  echo "[INFO] Wachten tot gateway-api-admission-server ready is..."
-  kubectl rollout status deployment gateway-api-admission-server -n gateway-system
-  kubectl get endpoints gateway-api-admission-server -n gateway-system
-
-  create_configmap
-
-  create_gatewayclass
-
-#! Gateway will be created in scope of Korifi helm deployment
-#< echo "[INFO] Creating Gateway 'korifi-gateway' in namespace '$KORIFI_GATEWAY_NAMESPACE'"
-#< kubectl apply -f - <<EOF
-#< apiVersion: gateway.networking.k8s.io/v1beta1
-#< kind: Gateway
-#< metadata:
-#<   name: korifi
-#<   namespace: $KORIFI_GATEWAY_NAMESPACE
-#< spec:
-#<   gatewayClassName: ${GATEWAY_CLASS_NAME}
-#<   listeners:
-#<   - name: http
-#<     protocol: HTTP
-#<     port: 80
-#<     allowedRoutes:
-#<       namespaces:
-#<         from: All
-#< EOF
-
-}
-
-# === Patch function ===
-function patch_file() {
-  local file=$1
-
-  local CONTOUR_IMAGE_REPO="${LOCAL_IMAGE_REGISTRY_FQDN}/${CONTOUR_CONTOUR_IMAGE}"
-  local ENVOY_IMAGE_REPO="${LOCAL_IMAGE_REGISTRY_FQDN}/${CONTOUR_ENVOY_IMAGE}"
-  local ENVOY_SERVICE_TYPE="LoadBalancer"
-
-  #? echo "[DEBUG]   CONTOUR_IMAGE_REPO='$CONTOUR_IMAGE_REPO'"
-  #? echo "[DEBUG]   ENVOY_IMAGE_REPO='$ENVOY_IMAGE_REPO'"
-  #? echo "[DEBUG]   ENVOY_SERVICE_TYPE='$ENVOY_SERVICE_TYPE'"
-  
-  # Replace namespace
-  echo "[TRACE]   sed -i \"s/namespace: projectcontour/namespace: ${namespace}/g\" $file"
-  sed -i "s/namespace: projectcontour/namespace: ${namespace}/g" "$file" || echo "found & updated"
-  test $? && echo "found & updated"
-
-  # Patch contour image
-  echo "[TRACE]   sed -i \"s|image: ghcr.io/projectcontour/contour:.*|image: ${CONTOUR_IMAGE_REPO}|g\" $file"
-  sed -i "s|image: ghcr.io/projectcontour/contour:.*|image: ${CONTOUR_IMAGE_REPO}|g" "$file" || echo "found & updated"
-
-  # Patch envoy image
-  echo "[TRACE]   sed -i \"s|image: docker.io/envoyproxy/envoy:.*|image: ${ENVOY_IMAGE_REPO}|g\" $file"
-  sed -i "s|image: docker.io/envoyproxy/envoy:.*|image: ${ENVOY_IMAGE_REPO}|g" "$file" || echo "found & updated"
-
-  # Patch Envoy service type if set
-  if [[ "$file" == *service-envoy.yaml* ]]; then
-    echo "[TRACE]   sed -i \"s/type: ClusterIP/type: ${ENVOY_SERVICE_TYPE}/g\" $file"
-    sed -i "s/type: ClusterIP/type: ${ENVOY_SERVICE_TYPE}/g" "$file" || echo "found & updated"
-  fi
-}
-
-
-function install_contour_gateway_static_v5() {
-##
-## This version uses projectcontour Helmchart for deploying Contour
+## This function uses projectcontour Helmchart for deploying Contour
 ##
 ## Unfortunately projectcontour doesn't provide or maintain helm charts anymore, so
 ## we can't use a values.yaml to update the deployment. Instead we have to update
@@ -533,40 +245,6 @@ function install_contour_gateway_static_v5() {
   local contour_version="${CONTOUR_VERSION}.2"	# global var doesn't contain patch versin!
   local envoy_version="$ENVOY_VERSION"
   local USE_CONTOUR_CERT=false
-
-#<   echo "[INFO] Apply recommended RBAC for Contour Gateway Controller"
-#<   kubectl apply -f - <<EOF
-#< apiVersion: rbac.authorization.k8s.io/v1
-#< kind: ClusterRole
-#<  metadata:
-#<  name: contour-gateway-controller
-#< rules:
-#<   - apiGroups: [""]
-#<     resources: ["services", "secrets", "endpoints"]
-#<     verbs: ["get", "list", "watch"]
-#<   - apiGroups: ["networking.k8s.io"]
-#<     resources: ["ingresses"]
-#<     verbs: ["get", "list", "watch"]
-#<   - apiGroups: ["gateway.networking.k8s.io"]
-#<     resources: ["gatewayclasses", "gateways", "httproutes", "tlsroutes", "referencegrants"]
-#<     verbs: ["get", "list", "watch", "update", "patch"]
-#<   - apiGroups: ["projectcontour.io"]
-#<     resources: ["httpproxies", "extensionservices", "tlscertificatedelegations"]
-#<     verbs: ["get", "list", "watch"]
-#< ---
-#< apiVersion: rbac.authorization.k8s.io/v1
-#< kind: ClusterRoleBinding
-#< metadata:
-#<   name: contour-gateway-controller
-#< roleRef:
-#<   apiGroup: rbac.authorization.k8s.io
-#<   kind: ClusterRole
-#<   name: contour-gateway-controller
-#< subjects:
-#<    - kind: ServiceAccount
-#<    name: default
-#<     namespace: korifi-gateway
-#< EOF
 
 
   echo "[INFO] Deploy contour using projectcontour manifest"
@@ -627,11 +305,6 @@ function install_contour_gateway_static_v5() {
    --from-file=tls.crt=tls.crt \
    --from-file=tls.key=tls.key \
    -n korifi-gateway
-#?  kubectl create secret tls contourcert \
-#?   --cert=tls.crt \
-#?   --key=tls.key \
-#?   --ca=ca.crt \
-#?   -n korifi-gateway
 
   # Create the envoycert secret
   echo "[INFO] Create TLS secret for envy"
@@ -641,10 +314,6 @@ function install_contour_gateway_static_v5() {
     --from-file=tls.crt=tls.crt \
     --from-file=tls.key=tls.key \
     -n korifi-gateway
-#?   kubectl create secret tls envoycert \
-#?   --cert=tls.crt \
-#?   --key=tls.key \
-#?   -n korifi-gateway
 
 
   # === Apply in correct order ===
@@ -654,9 +323,8 @@ function install_contour_gateway_static_v5() {
   kubectl apply -n "$namespace" -f "$src_dir/00-common.yaml"
   echo "[TRACE] kubectl apply -n $namespace -f $src_dir/01-crds.yaml"
   kubectl apply -n "$namespace" -f "$src_dir/01-crds.yaml"
-#?  echo "[TRACE] kubectl apply -n $namespace -f $src_dir/01-contour-config.yaml"	# Disabled, because configMap is created as post-deploy action of Korifi
-#?  kubectl apply -n "$namespace" -f "$src_dir/01-contour-config.yaml"			#
-
+  
+  # Use customized configMap instead of the one in the rep.
   create_configmap
 
   echo "[TRACE] kubectl apply -n $namespace -f $src_dir/02-role-contour.yaml"
@@ -737,7 +405,8 @@ EOF
   echo ""
 }
 
-install_contour_gateway
+install_contour_gateway_static
+#install_contour_gateway_dynamic
 
 
 ## Install Metrics Server
@@ -876,8 +545,6 @@ helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/d
 #    --set=stagingRequirements.buildCacheMB="1024" \
 #    --set=controllers.taskTTL="5s" \
 #    --set=jobTaskRunner.jobTTL="5s" \
-#+    --set=networking.gatewayPorts.http="32080" \
-#+    --set=networking.gatewayPorts.https="32443" \
 
 result=$?
 if [[ "$result" -ne "0" ]]; then echo "Helm deployment of Korifi cluster failed! Script aborted!"; exit 1; fi
@@ -915,55 +582,6 @@ done
 #TODO: Is this needed here? It's already created in v5
 create_configmap
 
-#echo "[INFO] Deploy Gateway Controller"
-#kubectl apply -f - <<EOF
-#apiVersion: apps/v1
-#kind: Deployment
-#metadata:
-#  name: contour-gateway-controller
-#  namespace: korifi-gateway
-#  labels:
-#    app: contour-gateway-controller
-#spec:
-#  replicas: 1
-#  selector:
-#    matchLabels:
-#      app: contour-gateway-controller
-#  template:
-#    metadata:
-#      labels:
-#        app: contour-gateway-controller
-#    spec:
-#      volumes:
-#        - name: tls-certs
-#          secret:
-#            secretName: contourcert
-#      containers:
-#        - name: controller
-#          image: ${LOCAL_IMAGE_REGISTRY_FQDN}/${GHCR_IMAGE_REGISTRY}/projectcontour/contour:v${CONTOUR_VERSION}.2
-#          command: ["contour"]
-#          args: 
-#            - serve
-#            - --incluster
-#            - --config-path=/config/contour.yaml
-#          ports:
-#            - containerPort: 8000
-#          volumeMounts:
-#            - name: tls-certs
-#              mountPath: /certs
-#              readOnly: true
-#          readinessProbe: null
-##            httpGet:
-##              path: /healthz
-##              port: 8000
-#          livenessProbe: null
-##            httpGet:
-##              path: /healthz
-##              port: 8000
-#EOF
-
-
-# DNS
 echo "Apply DNS and gateway configuration"
 
 # For static gateway
