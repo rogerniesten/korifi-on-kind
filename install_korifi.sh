@@ -89,6 +89,44 @@ EOF
 }
 
 
+## Install Cert Manager
+function install_cert_manager() {
+  echo "Installing cert-manager..."
+  kubectl_apply_locally "https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
+
+  # Wait until all cert-manager pods are ready
+  echo "Waiting for cert-manager pods to become ready..."
+  while true; do
+    # shellcheck disable=SC2126   # grep -c not possible here as param -v is not combineable with -c
+    NOT_READY=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | grep -v 'Running' | grep -v 'Completed' | wc -l)
+    TOTAL=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | wc -l)
+    if [[ "$TOTAL" -gt 0 && "$NOT_READY" -eq 0 ]]; then
+      echo "✅ All cert-manager pods are ready."
+      break
+    fi
+    echo "⏳ Still waiting... ($((TOTAL - NOT_READY))/$TOTAL ready)"
+    sleep 3
+  done
+  echo "...done"
+  echo ""
+}
+
+
+## Install Metrics Server
+function install_metrics_server_if_missing() {
+  kubectl get pods -A | grep metrics-server 1>/dev/null
+  metrics_server_installed=$?
+  if [[ $metrics_server_installed -eq 0 ]]; then
+    # Metrics server is already installed implicitly on AKS
+    echo "Metrics Server already installed, no action required"
+  else
+    echo "Installing Metrics Server..."
+    kubectl_apply_locally "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+    echo "...done"
+  fi
+}
+
+
 function patch_file() {
   #
   # This function patches a yaml file from the contour deployment to use images from the local registry
@@ -198,28 +236,7 @@ echo "---------------------------------------"
 echo ""
 
 
-## Install Cert Manager
-function install_cert_manager() {
-  echo "Installing cert-manager..."
-  kubectl_apply_locally "https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
-
-  # Wait until all cert-manager pods are ready
-  echo "Waiting for cert-manager pods to become ready..."
-  while true; do
-    # shellcheck disable=SC2126   # grep -c not possible here as param -v is not combineable with -c
-    NOT_READY=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | grep -v 'Running' | grep -v 'Completed' | wc -l)
-    TOTAL=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | wc -l)
-    if [[ "$TOTAL" -gt 0 && "$NOT_READY" -eq 0 ]]; then
-      echo "✅ All cert-manager pods are ready."
-      break
-    fi
-    echo "⏳ Still waiting... ($((TOTAL - NOT_READY))/$TOTAL ready)"
-    sleep 3
-  done
-  echo "...done"
-  echo ""
-}
-
+## Install cert manager
 install_cert_manager
 
 
@@ -409,21 +426,7 @@ install_contour_gateway_static
 #install_contour_gateway_dynamic
 
 
-## Install Metrics Server
-function install_metrics_server_if_missing() {
-  kubectl get pods -A | grep metrics-server 1>/dev/null
-  metrics_server_installed=$?
-  if [[ $metrics_server_installed -eq 0 ]]; then
-    # Metrics server is already installed implicitly on AKS
-    echo "Metrics Server already installed, no action required"
-  else
-    echo "Installing Metrics Server..."
-    kubectl_apply_locally "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
-    echo "...done"
-  fi
-}
-
-
+install_metrics_server_if_missing
 
 echo ""
 echo ""
@@ -451,7 +454,7 @@ echo "DBG: kubectl create secret docker-registry image-registry-credentials \\
   --docker-password=\"${DOCKER_REGISTRY_PASSWORD:1:4}**********\" \\
   --docker-server=\"$DOCKER_REGISTRY_SERVER\" \\
   -n \"$ROOT_NAMESPACE\""
-kubectl delete secret image-registry-credentials -n "$ROOT_NAMESPACE" --ignore-not-found	# for idempotency
+kubectl get secret image-registry-credentials -n "$ROOT_NAMESPACE" >/dev/null 2>&1 && kubectl delete secret image-registry-credentials -n "$ROOT_NAMESPACE" --ignore-not-found	# for idempotency
 kubectl create secret docker-registry image-registry-credentials \
   --docker-username="$DOCKER_REGISTRY_USERNAME" \
   --docker-password="$DOCKER_REGISTRY_PASSWORD" \
@@ -566,17 +569,6 @@ echo "Post Install Configuration"
 echo "---------------------------------------"
 echo ""
 
-
-echo "[INFO] Waiting for Gateway 'korifi' to be created..."
-for i in {1..30}; do
-  if kubectl get gateway korifi -n "$KORIFI_GATEWAY_NAMESPACE" >/dev/null 2>&1; then
-    echo ""
-    echo "[INFO] Gateway found (in ${i} times)."
-    break
-  fi
-  echo -n "."
-  sleep 5
-done
 
 
 #TODO: Is this needed here? It's already created in v5
