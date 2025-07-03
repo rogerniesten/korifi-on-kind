@@ -16,8 +16,21 @@ mkdir -p "$tmp"
 ##
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
+
 . .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
-echo "Using image registry '$LOCAL_IMAGE_REGISTRY_FQDN'"
+
+if [[ -n "$LOCAL_IMAGE_REGISTRY_FQDN" ]]; then
+  echo "Using image registry '$LOCAL_IMAGE_REGISTRY_FQDN'"
+  echo "Contour will be installed statically"
+  DEPLOY_TYPE_CONTOUR=static
+  ENVOY_SVC=envoy
+else
+  echo "Using external image registries"
+  echo "Contour will be installed dynamically"
+  DEPLOY_TYPE_CONTOUR=dynamic
+  ENVOY_SVC=envoy-korifi
+fi
+
 
 export KORIFI_GATEWAY_NAMESPACE=korifi-gateway
 export KORIFI_GATEWAY_DEPLOYMENT=contour-korifi
@@ -35,7 +48,7 @@ function create_gatewayclass() {
   local name="${1:-$GATEWAY_CLASS_NAME}"
   local ctrlname="${2:-projectcontour.io/gateway-controller}"
 
-  echo "[INFO ] Create GatewayClass (static mode)"
+  echo "[INFO ] Create GatewayClass"
   # source: https://projectcontour.io/docs/1.26/guides/gateway-api/
   echo "[TRACE] kubectl apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1beta1
@@ -378,7 +391,7 @@ function install_contour_gateway_dynamic() {
   local version=${1:-$CONTOUR_VERSION}
 
   # contour release url contains only major.minor version (not major.minor.patch), so adjust accordingly if required
-  version=get_version_levels "$version" 2
+  version=$(get_version_levels "$version" 2)
 
   echo "Installing contour gateway (dynamic)..."
   echo "- Contour Gateway Provisioner"
@@ -387,18 +400,25 @@ function install_contour_gateway_dynamic() {
   local local_contour_file="$tmp/contour-gateway-provisioner-v${version}.yaml"
 
   curl -L -o "$local_contour_file" "$contour_release_url"
-  adjust_images_to_local_registry "$local_contour_file"
+  #adjust_images_to_local_registry "$local_contour_file" # not required when external registries are allowed
 
   echo "TRC: kubectl apply -f $local_contour_file"
   kubectl apply -f "$local_contour_file"
 
-  create_configmap
+  #create_configmap
+
+  echo "Waiting for gateway-api-admission-server pod to become ready..."
+  kubectl wait --for=condition=ready pod -n gateway-system -l name=gateway-api-admission-server --timeout=120s
 
   create_gatewayclass
 }
 
-install_contour_gateway_static
-#install_contour_gateway_dynamic
+
+case "$DEPLOY_TYPE_CONTOUR" in
+  "static")	install_contour_gateway_static;;
+  "dynamic")	install_contour_gateway_dynamic;;
+  *)		echo "FAILURE: invalid deployment type '$DEPLOY_TYPE_CONTOUR' for Contour. Script aborted!";;
+esac
 
 
 install_metrics_server_if_missing
@@ -460,11 +480,13 @@ echo "Install Korifi"
 echo "---------------------------------------"
 echo ""
 
-if kubectl get namespace "$KORIFI_GATEWAY_NAMESPACE"; then
+if kubectl get namespace "$KORIFI_GATEWAY_NAMESPACE" >/dev/null 2>&1; then
   # Namespace $KORIFI_GATEWAY_NAMESPACE already exists (probably created in scope of contour deployment)
   kubectl label namespace "$KORIFI_GATEWAY_NAMESPACE" app.kubernetes.io/managed-by=Helm --overwrite
   kubectl annotate namespace "$KORIFI_GATEWAY_NAMESPACE" meta.helm.sh/release-name=korifi --overwrite
   kubectl annotate namespace "$KORIFI_GATEWAY_NAMESPACE" meta.helm.sh/release-namespace="$KORIFI_NAMESPACE" --overwrite
+else
+  echo "[DEBUG] namespace $KORIFI_GATEWAY_NAMESPACE not existing yet, so nothing required to adjust"
 fi
 
 echo "helm upgrade --install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz \\
@@ -539,13 +561,10 @@ echo "---------------------------------------"
 echo ""
 
 
+#TODO: Is this needed here? It's already created in function to install contour...
+create_configmap
 
 echo "Apply DNS and gateway configuration"
-#---
-# For static gateway
-ENVOY_SVC=envoy
-# For dynamic gateway
-# ENVOY_SVC=envoy-korifi
 echo "kubectl get service $ENVOY_SVC -n $KORIFI_GATEWAY_NAMESPACE -ojsonpath='{.status.loadBalancer.ingress[0]}'"
 kubectl get service "$ENVOY_SVC" -n "$KORIFI_GATEWAY_NAMESPACE" -ojsonpath='{.status.loadBalancer.ingress[0]}'	# just for info/debugging purposes
 KORIFI_IP=$(kubectl get svc "$ENVOY_SVC" -n "$KORIFI_GATEWAY_NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
@@ -598,8 +617,7 @@ EOF
 echo "Create certificates for '$ADMIN_USERNAME'"
 create_k8s_user_cert "$ADMIN_USERNAME"
 
-# It seems that cf-admin has not the clusterrole cluster-admin in KIND, which is required for several 
-# actions.
+# It seems that cf-admin has not the clusterrole cluster-admin, which is required 
 # Therefore it will be configure here explicitly
   echo "Apply admin authorization for ${ADMIN_USERNAME}"
   ## apply korifi-admin role to cf-admin
