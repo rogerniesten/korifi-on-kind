@@ -7,7 +7,6 @@ This repo is made during the investigation of Korifi as a replacement for Cloud 
 It also contains some scripts to demo some of the functionalities and featurs of Korifi as a PoC:
 - Create some orgs, spaces and users in Korifi with different access rights
 - Push some applications to Korifi
-- 
 
 ## Table of contents
 - [General information](#general-information)
@@ -23,7 +22,8 @@ It also contains some scripts to demo some of the functionalities and featurs of
    - [Demo: Combine apps (generated with buildpacks) in different organizations in Korifi with restricted userrights](#demo-combine-apps-generated-with-buildpacks-in-different-organizations-in-korifi-with-restricted-userrights)
    - [Demo: Install a 3rd party functionality as service via the korifi marketplace](#demo-install-a-3rd-party-functionality-as-service-via-the-korifi-marketplace)
    - [Demo: Setup network firewall within the korifi cluster](#setup-network-firewall-within-the-korifi-cluster)
-
+- Special cases
+   - [Only internal image registry](#only-internal-image-registry)
 
 ## General information
 To run the examples below, clone the repo and follow the instructions as described in the separate chapters.
@@ -335,3 +335,23 @@ Sources:
 In CloudFoundry network policies are used as firewalls to control Contaier-to-Container and App-to-Service networking. However, Networking Policies are NOT implemented in Korifi! Since Korifi runs on Kubernetes, networking policies are expected to be handled more natively via Kubernetes Network Policies or other CNI plugins.
 So for Network Policies in Korifi, a CNI plugin like Calico is required. Such a plugin is NOT installed by default. So ```deploy_kind.sh``` and ```deploy_aks.sh``` both had to be enhanced to installed Calico as CNI plugin to support Network Policies in Kubernetes for Korifi.
 
+
+# Only internal image registry
+In some cases a Kubernetes Cluster is setup in a way that pulling images from public registries is NOT allowed. In that case all required registries need to be pulled from a local registry, which has a few implications:
+1. The Gateway Provisioner (Dynamic deployment of Contour) will still try to pull images from public registries. Therefore Contour needs to be deploy in a static way!
+1. For testing purposes a local image registry is required.
+1. ...
+
+The script install_korifi.sh has been adapted to handle both cases:
+1. Use images from public registries and perm a dynamic deployment of Contour
+1. Use a local registry and perform a static deployment of Contour
+
+The environment variable LOCAL_IMAGE_REGISTRY_FQDN (located in .env.azure) determines which installation type is used when executing install_korifi.sh
+If it is populated, this variable specifies the FQDN of the internal image registry to be used. The script expects the images to have the following naming convention: <org-reg>/<image-name>:<tag>. So when pulling an image, the full name would be <local-reg>/<org-reg>/<image-name>:<tag> (e.g. my-local-registry.westeurope.cloudapp.azure.com/ghcr.io/projectcontour/contour:v1.26.3). In this case, for contour the static deployement will be used).
+If the variable is empty or not set, images from public registries are used and contour is deployed dynamically.
+
+Note: When switching from local to external registry (filling/clearing env var LOCAL_IMAGE_REGISTRY_FQDN in .env.azure), make sure to start in a fresh en completely new deployed Kubernetes Cluser!
+ToDo: When pushing software to the Korifi cluster, public images are pulled! This needs to be adjusted and is high on the roadmap.
+
+## Install 
+In order to use only a local registry
