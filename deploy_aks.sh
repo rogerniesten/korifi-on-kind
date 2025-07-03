@@ -248,6 +248,12 @@ install_azure_kubernetes_cluster "$K8S_CLUSTER_KORIFI"
 
 
 
+echo "[INFO ] reating baseline files for AKS Roles"
+kubectl get clusterrole -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "default-clusterroles.txt"
+kubectl get clusterrolebinding -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "default-clusterrolebindings.txt"
+
+
+
 
 echo ""
 echo "------------------------------------------------------"
