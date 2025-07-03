@@ -59,6 +59,24 @@ function trim() {
   echo "$var"
 }
 
+function get_version_levels() {
+  local version=$1
+  local levels=$2
+  local IFS='.'
+  read -ra parts <<< "$version"   # split version by '.'
+
+  # build output with requested levels, ignoring extra parts
+  local result=""
+  for ((i=0; i<levels && i<${#parts[@]}; i++)); do
+    if [[ $i -gt 0 ]]; then
+      result+="."
+    fi
+    result+="${parts[i]}"
+  done
+
+  echo "$result"
+}
+
 
 function assert() {
   bash -c "$*"

@@ -256,11 +256,9 @@ function install_contour_gateway_static() {
 
   local namespace="${1:-$KORIFI_GATEWAY_NAMESPACE}"
   local image_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
-  #local contour_version="${3:-}"
-  [[ -z "$contour_version" ]] && contour_version="${CONTOUR_VERSION}.2"
+  local contour_version="${3:-$CONTOUR_VERSION}"
+  local envoy_version="${4:-$ENVOY_VERSION}"
 
-  local contour_version="${CONTOUR_VERSION}.2"	# global var doesn't contain patch versin!
-  local envoy_version="$ENVOY_VERSION"
   local USE_CONTOUR_CERT=false
 
 
@@ -385,6 +383,9 @@ EOF
 
 function install_contour_gateway_dynamic() {
   local version=${1:-$CONTOUR_VERSION}
+
+  # contour release url contains only major.minor version (not major.minor.patch), so adjust accordingly if required
+  version=get_version_levels "$version" 2
 
   echo "Installing contour gateway (dynamic)..."
   echo "- Contour Gateway Provisioner"
