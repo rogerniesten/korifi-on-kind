@@ -157,7 +157,37 @@ function patch_file() {
   fi
 }
 
+function create_cert_secrets_for_contour() {
+  # Create a self-signed cert
+  echo "[INFO] Create TLS certificates for contour"
+  openssl req -x509 -nodes -days 365 \
+    -newkey rsa:2048 \
+    -keyout "$tmp/tls.key" \
+    -out "$tmp/tls.crt" \
+    -subj "/CN=contour" \
+    -addext "subjectAltName=DNS:contour"
 
+  # Create CA file (self-signed so same as cert)
+  cp "$tmp/tls.crt" "$tmp/ca.crt"
+
+  # Create the contourcert secret
+  echo "[INFO] Create TLS secret for contour"
+  kubectl get secret contourcert --namespace "$namespace" >/dev/null 2>&1 && kubectl delete secret contourcert --namespace "$namespace"       # for idempotency
+  kubectl create secret generic contourcert \
+   --from-file=ca.crt=$tmp/ca.crt \
+   --from-file=tls.crt=$tmp/tls.crt \
+   --from-file=tls.key=$tmp/tls.key \
+   -n korifi-gateway
+
+  # Create the envoycert secret
+  echo "[INFO] Create TLS secret for envy"
+  kubectl get secret envoycert --namespace "$namespace" >/dev/null 2>&1 && kubectl delete secret envoycert --namespace "$namespace"       # for idempotency
+  kubectl create secret generic envoycert \
+    --from-file=ca.crt=$tmp/ca.crt \
+    --from-file=tls.crt=$tmp/tls.crt \
+    --from-file=tls.key=$tmp/tls.key \
+    -n korifi-gateway
+}
 
 ##
 ## Installing required tools
@@ -264,17 +294,17 @@ function install_contour_gateway_static() {
 
   echo "[INFO] Deploy contour using projectcontour manifest"
 
-  # prepare
+  # There are some modifications required to the yaml files, so let's download the required files from the repository
   cd "$tmp"
-  
   echo "[INFO ] Downloading Contour release source..."
   echo "[TRACE] curl -sSL -o contour-source.tar.gz https://github.com/projectcontour/contour/archive/refs/tags/v${contour_version}.tar.gz"
   curl -sSL -o "contour-source.tar.gz" "https://github.com/projectcontour/contour/archive/refs/tags/v${contour_version}.tar.gz"
   echo "[TRACE] tar -xzf contour-source.tar.gz"
   tar -xzf "contour-source.tar.gz"
-
   cd -
 
+  # Images need to be pulled from the local registry, namespaces need to adjusted and envoy type should be Loadbalancer.
+  # This will be done for each yaml file in function 'patch_file'
   echo "[INFO ] Patching manifest files..."
   src_dir="$tmp/contour-${contour_version}/examples/contour"
   for file in "$src_dir"/*.yaml; do
@@ -282,6 +312,7 @@ function install_contour_gateway_static() {
     cat $file | yq >/dev/null || exit 99
   done
 
+  # Some additional adjustments: The certs nee to be removed from args and the gateway-ref must be added
   echo "[INFO ] Modify Contour deployment file..."
   # Remove from .spec.tempate.spec.containers[contour].args:
   #   --contour-cafile=/certs/ca.crt
@@ -300,36 +331,7 @@ function install_contour_gateway_static() {
   echo "[TRACE] kubectl get namespace $namespace \>/dev/null 2\>&1 \|\| kubectl create namespace \"$namespace"
   kubectl get namespace "$namespace" >/dev/null 2>&1 || kubectl create namespace "$namespace"
 
-  # Create a self-signed cert
-  echo "[INFO] Create TLS certificates for contour"
-  openssl req -x509 -nodes -days 365 \
-    -newkey rsa:2048 \
-    -keyout tls.key \
-    -out tls.crt \
-    -subj "/CN=contour" \
-    -addext "subjectAltName=DNS:contour"
-
-  # Create CA file (self-signed so same as cert)
-  cp tls.crt ca.crt
-
-  # Create the contourcert secret
-  echo "[INFO] Create TLS secret for contour"
-  kubectl get secret contourcert --namespace "$namespace" >/dev/null 2>&1 && kubectl delete secret contourcert --namespace "$namespace"       # for idempotency
-  kubectl create secret generic contourcert \
-   --from-file=ca.crt=ca.crt \
-   --from-file=tls.crt=tls.crt \
-   --from-file=tls.key=tls.key \
-   -n korifi-gateway
-
-  # Create the envoycert secret
-  echo "[INFO] Create TLS secret for envy"
-  kubectl get secret envoycert --namespace "$namespace" >/dev/null 2>&1 && kubectl delete secret envoycert --namespace "$namespace"       # for idempotency
-  kubectl create secret generic envoycert \
-    --from-file=ca.crt=ca.crt \
-    --from-file=tls.crt=tls.crt \
-    --from-file=tls.key=tls.key \
-    -n korifi-gateway
-
+  create_cert_secrets_for_contour
 
   # === Apply in correct order ===
   echo "[INFO ] Applying Contour manifests to namespace '$namespace'..."
@@ -368,17 +370,8 @@ function install_contour_gateway_static() {
   echo "[INFO ] Deploy CRDs (GatewayClass, Gateway, HTTPRoute, TLSRoute, etc.)"
   kubectl_apply_locally https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/experimental-install.yaml
 
-  echo "[INFO ] Create GatewayClass (static mode)"
   # source: https://projectcontour.io/docs/1.26/guides/gateway-api/
-  kubectl apply -f - <<EOF
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: GatewayClass
-metadata:
-  name: ${GATEWAY_CLASS_NAME}
-spec:
-  controllerName: projectcontour.io/gateway-controller
-EOF
-
+  create_gatewayclass
 }
 
 function install_contour_gateway_dynamic() {
@@ -394,33 +387,14 @@ function install_contour_gateway_dynamic() {
   local local_contour_file="$tmp/contour-gateway-provisioner-v${version}.yaml"
 
   curl -L -o "$local_contour_file" "$contour_release_url"
-  djust_images_to_local_registry "$local_contour_file"
+  adjust_images_to_local_registry "$local_contour_file"
 
   echo "TRC: kubectl apply -f $local_contour_file"
   kubectl apply -f "$local_contour_file"
 
-  echo "- Contour Gateway Class"
-  echo "TRC: kubectl apply -f - <<EOF
-kind: GatewayClass
-apiVersion: gateway.networking.k8s.io/v1beta1
-metadata:
-  name: $GATEWAY_CLASS_NAME
-spec:
-  controllerName: projectcontour.io/gateway-controller
-EOF"
-kubectl apply -f - <<EOF
-kind: GatewayClass
-apiVersion: gateway.networking.k8s.io/v1beta1
-metadata:
-  name: $GATEWAY_CLASS_NAME
-spec:
-  controllerName: projectcontour.io/gateway-controller
-EOF
+  create_configmap
 
-  #echo "Verify:"
-  # TODO: How?
-  echo "...done"
-  echo ""
+  create_gatewayclass
 }
 
 install_contour_gateway_static
@@ -465,9 +439,10 @@ echo ""
 
 
 ## TLS certificates
-#TODO: Currently SelfSigned certificates are generated via cert-manager, so no further action need at this moment
+# SelfSigned certificates are generated via cert-manager, so no further action need at this moment
 
 
+## If a local registry is specified, adjust the KORIFI image names
 if [[ -n "${LOCAL_IMAGE_REGISTRY_FQDN:-}" ]]; then
   echo "[INFO] Using images from '$LOCAL_IMAGE_REGISTRY'"
   KORIFI_HELM_HOOKSIMAGE="${LOCAL_IMAGE_REGISTRY_FQDN}/${KORIFI_HELM_HOOKSIMAGE}"
@@ -536,14 +511,7 @@ helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/d
     --set=statefulsetRunner.image="${KORIFI_STATEFULSETRUNNER_IMAGE}" \
     --wait
 
-    # In KIND following params are set different (https://github.com/cloudfoundry/korifi/releases/latest/download/install-korifi-kind.yaml)
-    # TODO: In case of issues in KIND with this install script, concider changing the values of these params
-#    --set=api.apiServer.url="localhost" \
-#    --set=defaultAppDomainName="apps-127-0-0-1.nip.io" \
-#    --set=containerRepositoryPrefix=europe-docker.pkg.dev/my-project/korifi/ \\
-#    --set=kpackImageBuilder.builderRepository=europe-docker.pkg.dev/my-project/korifi/kpack-builder \\
-    # In KIND following params are set additionally (https://github.com/cloudfoundry/korifi/releases/latest/download/install-korifi-kind.yaml)
-    # TODO: In case of issues in KIND with this install script, concider adding
+    # Some additional variables to set
 #    --set=logLevel="debug" \
 #    --set=debug="false" \
 #    --set=stagingRequirements.buildCacheMB="1024" \
@@ -572,25 +540,16 @@ echo ""
 
 
 
-#TODO: Is this needed here? It's already created in v5
-create_configmap
-
 echo "Apply DNS and gateway configuration"
-
+#---
 # For static gateway
-#< ENVOY_SVC="${KORIFI_GATEWAY_DEPLOYMENT}-envoy"
 ENVOY_SVC=envoy
+# For dynamic gateway
+# ENVOY_SVC=envoy-korifi
 echo "kubectl get service $ENVOY_SVC -n $KORIFI_GATEWAY_NAMESPACE -ojsonpath='{.status.loadBalancer.ingress[0]}'"
 kubectl get service "$ENVOY_SVC" -n "$KORIFI_GATEWAY_NAMESPACE" -ojsonpath='{.status.loadBalancer.ingress[0]}'	# just for info/debugging purposes
 KORIFI_IP=$(kubectl get svc "$ENVOY_SVC" -n "$KORIFI_GATEWAY_NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 KORIFI_IP=${KORIFI_IP:-::1}  # hose localhost address as backup (for KIND cluster) (Note: IPv6 is used as IPv4 port 443 fails cq. is in use)
-
-# For dynamic gateway
-#? echo "kubectl get service envoy-korifi -n $KORIFI_GATEWAY_NAMESPACE -ojsonpath='{.status.loadBalancer.ingress[0]}'"
-#? kubectl get service envoy-korifi -n "$KORIFI_GATEWAY_NAMESPACE" -ojsonpath='{.status.loadBalancer.ingress[0]}'
-#? KORIFI_IP=$(kubectl get service envoy-korifi -n "$KORIFI_GATEWAY_NAMESPACE" -ojsonpath='{.status.loadBalancer.ingress[0].ip}')
-#? KORIFI_IP=${KORIFI_IP:-::1}	# hose localhost address as backup (for KIND cluster) (Note: IPv6 is used as IPv4 port 443 fails cq. is in use)
-
 assert test -n "$KORIFI_IP"
 
 # Add domain to /etc/hosts in case it is not handled at a DNS server
@@ -661,7 +620,8 @@ EOF
 
 
 
-# TODO: Workaround for KIND!!!
+# Workaround for KIND
+# ===================
 # The cf api nor k8s load balancer (for apps) is reachable from the host
 # As a workaround, let's run a background process to handle the port forwarding. 
 if [[ "${K8S_TYPE^^}" == "KIND" ]];then
