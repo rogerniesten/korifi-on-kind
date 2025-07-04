@@ -490,56 +490,43 @@ else
   echo "[DEBUG] namespace $KORIFI_GATEWAY_NAMESPACE not existing yet, so nothing required to adjust"
 fi
 
-echo "helm upgrade --install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz \\
-    --namespace=$KORIFI_NAMESPACE  \\
-    --set=generateIngressCertificates=true \\
-    --set=rootNamespace=$ROOT_NAMESPACE \\
-    --set=adminUserName=$ADMIN_USERNAME \\
-    --set=api.apiServer.url=$CF_API_DOMAIN \\
-    --set=defaultAppDomainName=$CF_APPS_DOMAIN \\
-    --set=containerRepositoryPrefix=$DOCKER_REGISTRY_CONTAINER_REPOSITORY \\
-    --set=kpackImageBuilder.builderRepository=$DOCKER_REGISTRY_BUILDER_REPOSITORY \\
-    --set=networking.gatewayClass=$GATEWAY_CLASS_NAME \\
-    --set=networking.gatewayPorts.http=${CF_HTTP_PORT} \\
-    --set=networking.gatewayPorts.https=${CF_HTTPS_PORT} \\
-    --set experimental.managedServices.enabled=true \\
-    --set=experimental.managedServices.trustInsecureBrokers=true \\
-    --set=helm.hooksImage=${KORIFI_HELM_HOOKSIMAGE} \\
-    --set=api.image=${KORIFI_API_IMAGE} \\
-    --set=controllers.image=${KORIFI_CONTROLLERS_IMAGE} \\
-    --set=jobTaskRunner.image=${KORIFI_JOBSTASKRUNNER_IMAGE} \\
-    --set=kpackImageBuilder.image=${KORIFI_KPACKBUILDER_IMAGE} \\
-    --set=statefulsetRunner.image=${KORIFI_STATEFULSETRUNNER_IMAGE} \\
-    --wait"
-
-helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
-    --namespace="$KORIFI_NAMESPACE" \
-    --set=generateIngressCertificates=true \
-    --set=rootNamespace="$ROOT_NAMESPACE" \
-    --set=adminUserName="$ADMIN_USERNAME" \
-    --set=api.apiServer.url="$CF_API_DOMAIN" \
-    --set=defaultAppDomainName="$CF_APPS_DOMAIN" \
-    --set=containerRepositoryPrefix="$DOCKER_REGISTRY_CONTAINER_REPOSITORY" \
-    --set=kpackImageBuilder.builderRepository="$DOCKER_REGISTRY_BUILDER_REPOSITORY" \
-    --set=networking.gatewayClass="$GATEWAY_CLASS_NAME" \
-    --set=networking.gatewayPorts.http="${CF_HTTP_PORT}" \
-    --set=networking.gatewayPorts.https="${CF_HTTPS_PORT}" \
-    --set experimental.managedServices.enabled=true \
-    --set=experimental.managedServices.trustInsecureBrokers=true \
-    --set=helm.hooksImage="${KORIFI_HELM_HOOKSIMAGE}" \
-    --set=api.image="${KORIFI_API_IMAGE}" \
-    --set=controllers.image="${KORIFI_CONTROLLERS_IMAGE}" \
-    --set=jobTaskRunner.image="${KORIFI_JOBSTASKRUNNER_IMAGE}" \
-    --set=kpackImageBuilder.image="${KORIFI_KPACKBUILDER_IMAGE}" \
-    --set=statefulsetRunner.image="${KORIFI_STATEFULSETRUNNER_IMAGE}" \
-    --wait
-
+params=(
+    --set=generateIngressCertificates=true
+    --set=rootNamespace="$ROOT_NAMESPACE"
+    --set=adminUserName="$ADMIN_USERNAME"
+    --set=api.apiServer.url="$CF_API_DOMAIN"
+    --set=defaultAppDomainName="$CF_APPS_DOMAIN"
+    --set=containerRepositoryPrefix="$DOCKER_REGISTRY_CONTAINER_REPOSITORY"
+    --set=kpackImageBuilder.builderRepository="$DOCKER_REGISTRY_BUILDER_REPOSITORY"
+    --set=networking.gatewayClass="$GATEWAY_CLASS_NAME"
+    --set=networking.gatewayPorts.http="${CF_HTTP_PORT}"
+    --set=networking.gatewayPorts.https="${CF_HTTPS_PORT}"
+    --set=experimental.managedServices.enabled=true			# is required to use next parameter
+    --set=experimental.managedServices.trustInsecureBrokers=true	# is required when local registry is used
+    # The images below are explicitly specified public or locally, depending on deployment type
+    --set=helm.hooksImage="${KORIFI_HELM_HOOKSIMAGE}"
+    --set=api.image="${KORIFI_API_IMAGE}"
+    --set=controllers.image="${KORIFI_CONTROLLERS_IMAGE}"
+    --set=jobTaskRunner.image="${KORIFI_JOBSTASKRUNNER_IMAGE}"
+    --set=kpackImageBuilder.image="${KORIFI_KPACKBUILDER_IMAGE}"
+    --set=statefulsetRunner.image="${KORIFI_STATEFULSETRUNNER_IMAGE}"
     # Some additional variables to set
 #    --set=logLevel="debug" \
 #    --set=debug="false" \
 #    --set=stagingRequirements.buildCacheMB="1024" \
 #    --set=controllers.taskTTL="5s" \
 #    --set=jobTaskRunner.jobTTL="5s" \
+)
+
+echo "[TRACE] helm upgrade --install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz \\
+    --namespace="$KORIFI_NAMESPACE" \\"
+printf '    %s \\\n' "${params[@]}"
+echo "    --wait"
+
+helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
+    --namespace="$KORIFI_NAMESPACE" \
+    "${params[@]}" \
+    --wait
 
 result=$?
 if [[ "$result" -ne "0" ]]; then echo "Helm deployment of Korifi cluster failed! Script aborted!"; exit 1; fi
