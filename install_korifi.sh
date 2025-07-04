@@ -454,6 +454,7 @@ kubectl create secret docker-registry image-registry-credentials \
   --docker-username="$DOCKER_REGISTRY_USERNAME" \
   --docker-password="$DOCKER_REGISTRY_PASSWORD" \
   --docker-server="$DOCKER_REGISTRY_SERVER" \
+  --docker-email="dummy@dummy.com" \
   -n "$ROOT_NAMESPACE"
 echo ""
 
