@@ -47,6 +47,9 @@ cf target -o org -s space
 
 kubectl get pods -n korifi
 assert "kubectl get pods -n korifi | grep Running"
+
+ensure_korifi_ready
+
 echo "...done"
 
 
@@ -272,6 +275,9 @@ curl -I --insecure "https://$app_url:$CF_HTTPS_PORT"
 #	server: envoy
 echo ""
 
+
+echo "Finishing after pushing java hello world app"
+exit 0
 
 
 # Now push the sample Python app to korifi

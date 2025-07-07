@@ -19,19 +19,6 @@ prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 
 . .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
-if [[ -n "$LOCAL_IMAGE_REGISTRY_FQDN" ]]; then
-  echo "Using image registry '$LOCAL_IMAGE_REGISTRY_FQDN'"
-  echo "Contour will be installed statically"
-  DEPLOY_TYPE_CONTOUR=static
-  ENVOY_SVC=envoy
-else
-  echo "Using external image registries"
-  echo "Contour will be installed dynamically"
-  DEPLOY_TYPE_CONTOUR=dynamic
-  ENVOY_SVC=envoy-korifi
-fi
-
-
 export KORIFI_GATEWAY_NAMESPACE=korifi-gateway
 export KORIFI_GATEWAY_DEPLOYMENT=contour-korifi
 
@@ -125,6 +112,52 @@ function install_cert_manager() {
 }
 
 
+#<## Install kpack
+#<function install_kpack() {
+#<  local version=${1:-$KPACK_VERSION}
+#<
+#<  local kpack_release_url="https://github.com/buildpacks-community/kpack/releases/download/v${version}/release-${version}.yaml"
+#<  local local_kpack_file="$tmp/kpack_release-v${version}.yaml"
+#<
+#<  # Note: Workaround for kpack installation
+#<  #       kpack installation might fail because some CRD's are not installed in time
+#<  #       By installing only the CRD parts of kpack first, this issue is bypassed
+#<
+#<  echo "Installing kpack..."
+#<
+#<  curl -L -o "$local_kpack_file" "$kpack_release_url"
+#<  adjust_images_to_local_registry "$local_kpack_file" "" "" "$KPACK_VERSION"
+#<
+#<  # Step 1: Apply only CRDs (initial apply to install CRDs)
+#<  #< echo "TRC: kubectl apply -f <(wget -qO- $local_kpack_file | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+#<  #< kubectl apply -f <(wget -qO- "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
+#<  echo "TRC: kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+#<  kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
+#<
+#<
+#<  # Step 2: Wait for ClusterLifecycle CRD to become available
+#<  echo "Waiting for ClusterLifecycle CRD to be registered..."
+#<  until kubectl get crd clusterlifecycles.kpack.io >/dev/null 2>&1; do
+#<    echo -n "."
+#<    sleep 2
+#<  done
+#<  echo "ClusterLifecycle CRD is now available."
+#<
+#<  # Step 3: Apply the release again to ensure all resources are created
+#<  echo "TRC: kubectl apply --filename \"$local_kpack_file\""
+#<  kubectl apply --filename "$local_kpack_file"
+#<
+#<  # Step 3: Deploy custom ClusterStack, ClusterStore and ClusterBuilder
+#<  deploy_custom_cluster_builder
+#<
+#<  # Step 4: Verify kpack
+#<  echo "Waiting for kpack pods are running..."
+#<  kubectl wait --for=jsonpath='{.status.phase}'=Running pod --all --namespace kpack --timeout=60s
+#<  echo "...done"
+#<  echo ""
+#<}
+
+
 ## Install Metrics Server
 function install_metrics_server_if_missing() {
   kubectl get pods -A | grep metrics-server 1>/dev/null
@@ -200,6 +233,71 @@ function create_cert_secrets_for_contour() {
     --from-file=tls.crt=$tmp/tls.crt \
     --from-file=tls.key=$tmp/tls.key \
     -n korifi-gateway
+}
+
+
+function OBSOLETE_deploy_custom_cluster_builder() {
+  local image_registry=${1:-$LOCAL_IMAGE_REGISTRY_FQDN}
+  local clusterbuilder_name=${2:-$CLUSTERBUILDER_NAME}
+
+  echo "[INFO ] Deploying custom ClusterBuilder (using only images from trusted registry)"
+
+## NOTE: Service account kpack-service-account will be created in namespace $ROOT_NAMESPACE (default:
+##       cf) in scope of the helm chart of korifi later in this script in.
+##       Make sure it's correctly referenced in ClusterStack ClusterStore CluisterBuilder
+
+  # TODO: Use vars for the images (also in install_local_image_registry.sh)
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStack
+metadata:
+  name: base-stack
+spec:
+  id: io.buildpacks.stacks.jammy
+  buildImage:
+    image: $image_registry/index.docker.io/paketobuildpacks/build-jammy-full
+  runImage:
+    image: $image_registry/index.docker.io/paketobuildpacks/run-jammy-full
+EOF
+
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStore
+metadata:
+  name: base-store
+spec:
+  sources:
+    - image: "$image_registry/index.docker.io/paketobuildpacks/go"
+    - image: "$image_registry/index.docker.io/paketobuildpacks/java"
+    - image: "$image_registry/index.docker.io/paketobuildpacks/nodejs"
+    - image: "$image_registry/index.docker.io/paketobuildpacks/procfile"
+    - image: "$image_registry/index.docker.io/paketobuildpacks/ruby"
+    # Add more as needed
+EOF
+
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuilder
+metadata:
+  name: $clusterbuilder_name
+spec:
+  tag: $image_registry/korifi-kpack-builder
+  serviceAccountRef:
+    name: kpack-service-account
+    namespace: $ROOT_NAMESPACE
+  stack:
+    name: base-stack
+    kind: ClusterStack
+  store:
+    name: base-store
+    kind: ClusterStore
+  order:
+    - group:
+        - id: paketo-buildpacks/java
+    - group:
+        - id: paketo-buildpacks/nodejs
+EOF
+
 }
 
 ##
@@ -496,13 +594,13 @@ params=(
     --set=adminUserName="$ADMIN_USERNAME"
     --set=api.apiServer.url="$CF_API_DOMAIN"
     --set=defaultAppDomainName="$CF_APPS_DOMAIN"
-    --set=containerRepositoryPrefix="$DOCKER_REGISTRY_CONTAINER_REPOSITORY"
-    --set=kpackImageBuilder.builderRepository="$DOCKER_REGISTRY_BUILDER_REPOSITORY"
+    --set=containerRepositoryPrefix="$DOCKER_REGISTRY_CONTAINER_REPOSITORY"	# base repo path where application images built by korifi are stored
+    --set=kpackImageBuilder.builderRepository="$DOCKER_REGISTRY_BUILDER_REPOSITORY" # builder image that kpack uses as env to build application images 
     --set=networking.gatewayClass="$GATEWAY_CLASS_NAME"
     --set=networking.gatewayPorts.http="${CF_HTTP_PORT}"
     --set=networking.gatewayPorts.https="${CF_HTTPS_PORT}"
-    --set=experimental.managedServices.enabled=true			# is required to use next parameter
-    --set=experimental.managedServices.trustInsecureBrokers=true	# is required when local registry is used
+    --set=experimental.managedServices.enabled=true				# is required to use next parameter
+    --set=experimental.managedServices.trustInsecureBrokers=true		# is required when local registry is used
     # The images below are explicitly specified public or locally, depending on deployment type
     --set=helm.hooksImage="${KORIFI_HELM_HOOKSIMAGE}"
     --set=api.image="${KORIFI_API_IMAGE}"
@@ -510,7 +608,9 @@ params=(
     --set=jobTaskRunner.image="${KORIFI_JOBSTASKRUNNER_IMAGE}"
     --set=kpackImageBuilder.image="${KORIFI_KPACKBUILDER_IMAGE}"
     --set=statefulsetRunner.image="${KORIFI_STATEFULSETRUNNER_IMAGE}"
-    # Some additional variables to set
+    --set=kpackImageBuilder.createClusterBuilder=false
+    --set=kpackImageBuilder.clusterBuilderName="${CLUSTERBUILDER_NAME}"
+    # Some additional variables that can be set
 #    --set=logLevel="debug" \
 #    --set=debug="false" \
 #    --set=stagingRequirements.buildCacheMB="1024" \

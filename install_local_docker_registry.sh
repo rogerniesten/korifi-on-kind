@@ -179,7 +179,18 @@ function copy_image_to_local_registry() {
   local image=$1
   local target_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
   target_registry=localhost:5000	# this doesn't use the internet, but pushes directly to the registry on localhost, which is way faster!
-  
+
+#<  echo "[TRACE] copy_image_to_local_registry( '$image', '$target_registry')"
+#<  echo "[TRACE] LOCAL_IMAGE_REGISTRY_FQDN='$LOCAL_IMAGE_REGISTRY_FQDN'"
+#<
+#<  if [[ "$image" == "$target_registry"* || "$image" == "$LOCAL_IMAGE_REGISTRY_FQDN"* ]]; then
+#<    echo "[TRACE] strip localhost from '$image'"
+#<    # incase the image name already points to the target registry, strip it. That way the original image is pulled.
+#<    image="${image#${target_registry}/}"
+#<    image="${image#${LOCAL_IMAGE_REGISTRY_FQDN}/}"
+#<    echo "result: '$image'"
+#<  fi
+
   echo "[TRACE] $SUDOCMD docker pull $image"
   $SUDOCMD docker pull "$image"			# pull the image from docker hub
   echo "{TRACE] $SUDOCMD docker tag $image ${target_registry}/${image}"
@@ -195,6 +206,9 @@ function copy_image_to_local_registry() {
 }
 
 
+##
+## Required images to install Korifi and dependencies
+##
 
 # Copy Korifi images from docker.io
 copy_image_to_local_registry "$KORIFI_HELM_HOOKSIMAGE"
@@ -225,6 +239,20 @@ copy_image_to_local_registry "$CERT_MGR_CONTROLLER_IMAGE"
 copy_image_to_local_registry "$CERT_MGR_WEBHOOK_IMAGE"
 copy_image_to_local_registry "$CERT_MGR_CAINJECTOR_IMAGE"
 copy_image_to_local_registry "$CERT_MGR_ACMESOLVER_IMAGE"
+
+
+##
+## Required images for building applications (e.g. paketo buildpacks)
+##
+copy_image_to_local_registry index.docker.io/paketobuildpacks/build-jammy-full
+copy_image_to_local_registry index.docker.io/paketobuildpacks/run-jammy-full
+
+copy_image_to_local_registry index.docker.io/paketobuildpacks/go
+copy_image_to_local_registry index.docker.io/paketobuildpacks/java
+copy_image_to_local_registry index.docker.io/paketobuildpacks/nodejs
+copy_image_to_local_registry index.docker.io/paketobuildpacks/procfile
+copy_image_to_local_registry index.docker.io/paketobuildpacks/ruby
+# TODO: add other required buildpacks (e.g. python) here!
 
 #
 # End message

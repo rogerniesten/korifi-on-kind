@@ -65,13 +65,79 @@ function kubectl_apply_locally() {
   kubectl apply -f "$local_yaml"
 }
 
+
+function deploy_custom_cluster_builder() {
+  local image_registry=${1:-$LOCAL_IMAGE_REGISTRY_FQDN}
+  local clusterbuilder_name=${2:-$CLUSTERBUILDER_NAME}
+
+  echo "[INFO ] Deploying custom ClusterBuilder (using only images from trusted registry)"
+
+## NOTE: Service account kpack-service-account will be created in namespace $ROOT_NAMESPACE (default:
+##       cf) in scope of the helm chart of korifi later in this script in.
+##       Make sure it's correctly referenced in ClusterStack ClusterStore CluisterBuilder
+
+  # TODO: Use vars for the images (also in install_local_image_registry.sh)
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStack
+metadata:
+  name: base-stack
+spec:
+  id: io.buildpacks.stacks.jammy
+  buildImage:
+    image: $image_registry/index.docker.io/paketobuildpacks/build-jammy-full
+  runImage:
+    image: $image_registry/index.docker.io/paketobuildpacks/run-jammy-full
+EOF
+
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStore
+metadata:
+  name: base-store
+spec:
+  sources:
+    - image: "$image_registry/index.docker.io/paketobuildpacks/go"
+    - image: "$image_registry/index.docker.io/paketobuildpacks/java"
+    - image: "$image_registry/index.docker.io/paketobuildpacks/nodejs"
+    - image: "$image_registry/index.docker.io/paketobuildpacks/procfile"
+    - image: "$image_registry/index.docker.io/paketobuildpacks/ruby"
+    # Add more as needed
+EOF
+
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuilder
+metadata:
+  name: $clusterbuilder_name
+spec:
+  tag: $image_registry/korifi-kpack-builder
+  serviceAccountRef:
+    name: kpack-service-account
+    namespace: $ROOT_NAMESPACE
+  stack:
+    name: base-stack
+    kind: ClusterStack
+  store:
+    name: base-store
+    kind: ClusterStore
+  order:
+    - group:
+        - id: paketo-buildpacks/java
+    - group:
+        - id: paketo-buildpacks/nodejs
+EOF
+
+}
+
+
 ## Install kpack
 function install_kpack() {
   local version=${1:-$KPACK_VERSION}
 
   local kpack_release_url="https://github.com/buildpacks-community/kpack/releases/download/v${version}/release-${version}.yaml"
   local local_kpack_file="$tmp/kpack_release-v${version}.yaml"
-  
+
   # Note: Workaround for kpack installation
   #       kpack installation might fail because some CRD's are not installed in time
   #       By installing only the CRD parts of kpack first, this issue is bypassed
@@ -100,12 +166,16 @@ function install_kpack() {
   echo "TRC: kubectl apply --filename \"$local_kpack_file\""
   kubectl apply --filename "$local_kpack_file"
 
+  # Step 3: Deploy custom ClusterStack, ClusterStore and ClusterBuilder
+  deploy_custom_cluster_builder
+
   # Step 4: Verify kpack
   echo "Waiting for kpack pods are running..."
   kubectl wait --for=jsonpath='{.status.phase}'=Running pod --all --namespace kpack --timeout=60s
   echo "...done"
   echo ""
 }
+
 
 
 function create_k8s_user_cert() {
@@ -321,4 +391,67 @@ function add_to_etc_hosts() {
     #grep "${search_string}" /etc/hosts
     echo ""
   fi
+}
+
+
+function ensure_korifi_ready() {
+
+
+  ## Verifu Service Account and Registry Secret
+  echo "🔍 Verifying image-registry-credentials secret..."
+  kubectl get secret image-registry-credentials -n cf >/dev/null || {
+    echo "[TRACE] kubectl get secret image-registry-credentials -n cf"
+    echo "❌ Registry credentials not found in 'cf' namespace"
+    exit 1
+  }
+
+  echo "🔍 Verifying kpack-service-account uses the correct secret..."
+  kubectl get serviceaccount kpack-service-account -n "$ROOT_NAMESPACE" -o jsonpath='{.imagePullSecrets[*].name}' | grep -q image-registry-credentials || {
+    echo "[TRACE] kubectl get serviceaccount kpack-service-account -n $ROOT_NAMESPACE -o jsonpath='{.imagePullSecrets[*].name}' | grep -q image-registry-credentials"
+    echo "❌ kpack-service-account does not reference image-registry-credentials"
+    exit 1
+  }
+
+  ## Fprce ClusterBuilder Reconsiiation
+  echo "🔁 Forcing ClusterBuilder rebuild..."
+  kubectl annotate clusterbuilder "$CLUSTERBUILDER_NAME" "kpack.io/force-rebuild=$(date +%s)" --overwrite
+  
+  # Wait for it to become ready (use a loop with timeout)
+  echo "⏳ Waiting for ClusterBuilder to become Ready..."
+  for _ in {1..30}; do
+    READY=$(kubectl get clusterbuilder "$CLUSTERBUILDER_NAME" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+    [[ "$READY" == "True" ]] && break
+    sleep 5
+  done
+  
+  [[ "$READY" != "True" ]] && {
+    echo "[TRACE] kubectl get clusterbuilder "$CLUSTERBUILDER_NAME" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}"
+    echo "❌ ClusterBuilder is not ready after timeout"
+    exit 1
+  }
+  echo "✅ ClusterBuilder is ready"
+
+  ## Validate Registry Reachability (optional)
+  echo "🌐 Testing access to internal registry..."
+  if ! curl -s --connect-timeout 5 "http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/" > /dev/null; then
+    echo "[TRACE] curl -s --connect-timeout 5 http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/"
+    echo "❌ Cannot reach internal image registry"
+    exit 1
+  fi
+
+  ## Check BuildTemplates & ClusterStack Are Ready (optional)
+  echo "🔍 Checking ClusterStack is ready..."
+  if ! kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q True; then
+    echo "[TRACE] kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep True"
+    echo "❌ ClusterStack 'base-stack' is not ready"
+    exit 1
+  fi
+ 
+  echo "🔍 Checking ClusterStore is ready..."
+  if ! kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q True; then
+    echo "[TRACE] kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep True"
+    echo "❌ ClusterStore not ready"
+    exit 1
+  fi
+ 
 }
