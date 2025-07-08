@@ -154,8 +154,7 @@ function login_to_azure() {
 }
 
 
-az account show > /dev/null 2>&1
-if [ $? -eq 0 ]; then
+if az account show > /dev/null 2>&1 ; then
   echo "Already logged in to Azure."
 else
   echo "Not logged in to Azure yet, let's login now."

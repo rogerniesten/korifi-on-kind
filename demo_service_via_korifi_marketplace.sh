@@ -485,8 +485,8 @@ exit 0
 #EOF
 
 
-# Install OSBA in the korifi cluster
-#? helm install osba osba/open-service-broker-azure -f values.yaml --namespace osba --create-namespace
+## Install OSBA in the korifi cluster
+#helm install osba osba/open-service-broker-azure -f values.yaml --namespace osba --create-namespace
 
 
 

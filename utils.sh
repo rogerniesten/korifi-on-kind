@@ -148,7 +148,7 @@ function prompt_if_missing() {
     fi
 
     #echo "[DBUG] executing export $var_name=\"$current_value\""	# WARNING: this command shows also secrets on the output!
-    export $var_name="$current_value"
+    export var_name="$current_value"
   
     # Save to env-file
     if [[ "${var_type^^}" != "SECRET" && -n "${env_file:-}" ]]; then

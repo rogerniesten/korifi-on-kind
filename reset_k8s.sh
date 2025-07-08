@@ -19,6 +19,7 @@ for ns in $(kubectl get ns --no-headers | awk '{print $1}' | grep -vE "$PRESERVE
 done
 
 # Delete all CustomResourceDefinitions (CRDs)
+# shellcheck  disable=SC2046
 kubectl delete crd $(kubectl get crd -o name)
 
 # Delete non-system ClusterRoles and ClusterRoleBindings
@@ -45,6 +46,7 @@ kubectl delete crd $(kubectl get crd -o name)
 #kubectl get apiservice -o name | grep -v 'v1.' | xargs kubectl delete
 
 # Delete all StorageClasses (optional)
+# shellcheck  disable=SC2046
 kubectl delete sc $(kubectl get sc -o name)
 
 # Delete all Persistent Volume Claims in the 'default' namespace (or others if needed)

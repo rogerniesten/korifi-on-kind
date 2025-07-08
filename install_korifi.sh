@@ -23,7 +23,7 @@ export KORIFI_GATEWAY_NAMESPACE=korifi-gateway
 export KORIFI_GATEWAY_DEPLOYMENT=contour-korifi
 
 # Script should be executed as root (just sudo fails for some commands)
-strongly_advice_root
+strongly_advice_root 5
 
 
 
@@ -112,52 +112,6 @@ function install_cert_manager() {
 }
 
 
-#<## Install kpack
-#<function install_kpack() {
-#<  local version=${1:-$KPACK_VERSION}
-#<
-#<  local kpack_release_url="https://github.com/buildpacks-community/kpack/releases/download/v${version}/release-${version}.yaml"
-#<  local local_kpack_file="$tmp/kpack_release-v${version}.yaml"
-#<
-#<  # Note: Workaround for kpack installation
-#<  #       kpack installation might fail because some CRD's are not installed in time
-#<  #       By installing only the CRD parts of kpack first, this issue is bypassed
-#<
-#<  echo "Installing kpack..."
-#<
-#<  curl -L -o "$local_kpack_file" "$kpack_release_url"
-#<  adjust_images_to_local_registry "$local_kpack_file" "" "" "$KPACK_VERSION"
-#<
-#<  # Step 1: Apply only CRDs (initial apply to install CRDs)
-#<  #< echo "TRC: kubectl apply -f <(wget -qO- $local_kpack_file | yq e 'select(.kind == \"CustomResourceDefinition\")')"
-#<  #< kubectl apply -f <(wget -qO- "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
-#<  echo "TRC: kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
-#<  kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
-#<
-#<
-#<  # Step 2: Wait for ClusterLifecycle CRD to become available
-#<  echo "Waiting for ClusterLifecycle CRD to be registered..."
-#<  until kubectl get crd clusterlifecycles.kpack.io >/dev/null 2>&1; do
-#<    echo -n "."
-#<    sleep 2
-#<  done
-#<  echo "ClusterLifecycle CRD is now available."
-#<
-#<  # Step 3: Apply the release again to ensure all resources are created
-#<  echo "TRC: kubectl apply --filename \"$local_kpack_file\""
-#<  kubectl apply --filename "$local_kpack_file"
-#<
-#<  # Step 3: Deploy custom ClusterStack, ClusterStore and ClusterBuilder
-#<  deploy_custom_cluster_builder
-#<
-#<  # Step 4: Verify kpack
-#<  echo "Waiting for kpack pods are running..."
-#<  kubectl wait --for=jsonpath='{.status.phase}'=Running pod --all --namespace kpack --timeout=60s
-#<  echo "...done"
-#<  echo ""
-#<}
-
-
 ## Install Metrics Server
 function install_metrics_server_if_missing() {
   kubectl get pods -A | grep metrics-server 1>/dev/null
@@ -236,69 +190,6 @@ function create_cert_secrets_for_contour() {
 }
 
 
-function OBSOLETE_deploy_custom_cluster_builder() {
-  local image_registry=${1:-$LOCAL_IMAGE_REGISTRY_FQDN}
-  local clusterbuilder_name=${2:-$CLUSTERBUILDER_NAME}
-
-  echo "[INFO ] Deploying custom ClusterBuilder (using only images from trusted registry)"
-
-## NOTE: Service account kpack-service-account will be created in namespace $ROOT_NAMESPACE (default:
-##       cf) in scope of the helm chart of korifi later in this script in.
-##       Make sure it's correctly referenced in ClusterStack ClusterStore CluisterBuilder
-
-  # TODO: Use vars for the images (also in install_local_image_registry.sh)
-  kubectl apply -f - <<EOF
-apiVersion: kpack.io/v1alpha2
-kind: ClusterStack
-metadata:
-  name: base-stack
-spec:
-  id: io.buildpacks.stacks.jammy
-  buildImage:
-    image: $image_registry/index.docker.io/paketobuildpacks/build-jammy-full
-  runImage:
-    image: $image_registry/index.docker.io/paketobuildpacks/run-jammy-full
-EOF
-
-  kubectl apply -f - <<EOF
-apiVersion: kpack.io/v1alpha2
-kind: ClusterStore
-metadata:
-  name: base-store
-spec:
-  sources:
-    - image: "$image_registry/index.docker.io/paketobuildpacks/go"
-    - image: "$image_registry/index.docker.io/paketobuildpacks/java"
-    - image: "$image_registry/index.docker.io/paketobuildpacks/nodejs"
-    - image: "$image_registry/index.docker.io/paketobuildpacks/procfile"
-    - image: "$image_registry/index.docker.io/paketobuildpacks/ruby"
-    # Add more as needed
-EOF
-
-  kubectl apply -f - <<EOF
-apiVersion: kpack.io/v1alpha2
-kind: ClusterBuilder
-metadata:
-  name: $clusterbuilder_name
-spec:
-  tag: $image_registry/korifi-kpack-builder
-  serviceAccountRef:
-    name: kpack-service-account
-    namespace: $ROOT_NAMESPACE
-  stack:
-    name: base-stack
-    kind: ClusterStack
-  store:
-    name: base-store
-    kind: ClusterStore
-  order:
-    - group:
-        - id: paketo-buildpacks/java
-    - group:
-        - id: paketo-buildpacks/nodejs
-EOF
-
-}
 
 ##
 ## Installing required tools
@@ -398,7 +289,6 @@ function install_contour_gateway_static() {
   local namespace="${1:-$KORIFI_GATEWAY_NAMESPACE}"
   local image_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
   local contour_version="${3:-$CONTOUR_VERSION}"
-  local envoy_version="${4:-$ENVOY_VERSION}"
 
   local USE_CONTOUR_CERT=false
 
@@ -406,13 +296,14 @@ function install_contour_gateway_static() {
   echo "[INFO] Deploy contour using projectcontour manifest"
 
   # There are some modifications required to the yaml files, so let's download the required files from the repository
-  cd "$tmp"
-  echo "[INFO ] Downloading Contour release source..."
-  echo "[TRACE] curl -sSL -o contour-source.tar.gz https://github.com/projectcontour/contour/archive/refs/tags/v${contour_version}.tar.gz"
-  curl -sSL -o "contour-source.tar.gz" "https://github.com/projectcontour/contour/archive/refs/tags/v${contour_version}.tar.gz"
-  echo "[TRACE] tar -xzf contour-source.tar.gz"
-  tar -xzf "contour-source.tar.gz"
-  cd -
+  (
+    cd "$tmp" || exit 99
+    echo "[INFO ] Downloading Contour release source..."
+    echo "[TRACE] curl -sSL -o contour-source.tar.gz https://github.com/projectcontour/contour/archive/refs/tags/v${contour_version}.tar.gz"
+    curl -sSL -o "contour-source.tar.gz" "https://github.com/projectcontour/contour/archive/refs/tags/v${contour_version}.tar.gz"
+    echo "[TRACE] tar -xzf contour-source.tar.gz"
+    tar -xzf "contour-source.tar.gz"
+  )
 
   # Images need to be pulled from the local registry, namespaces need to adjusted and envoy type should be Loadbalancer.
   # This will be done for each yaml file in function 'patch_file'
@@ -453,7 +344,7 @@ function install_contour_gateway_static() {
   kubectl apply -n "$namespace" -f "$src_dir/01-crds.yaml"
   
   # Use customized configMap instead of the one in the rep.
-  create_configmap
+  create_configmap "$KORIFI_GATEWAY_NAMESPACE"
 
   echo "[TRACE] kubectl apply -n $namespace -f $src_dir/02-role-contour.yaml"
   kubectl apply -n "$namespace" -f "$src_dir/02-role-contour.yaml"
@@ -482,8 +373,9 @@ function install_contour_gateway_static() {
   kubectl_apply_locally https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/experimental-install.yaml
 
   # source: https://projectcontour.io/docs/1.26/guides/gateway-api/
-  create_gatewayclass
+  create_gatewayclass "$GATEWAY_CLASS_NAME"
 }
+
 
 function install_contour_gateway_dynamic() {
   local version=${1:-$CONTOUR_VERSION}
@@ -503,18 +395,18 @@ function install_contour_gateway_dynamic() {
   echo "TRC: kubectl apply -f $local_contour_file"
   kubectl apply -f "$local_contour_file"
 
-  #create_configmap
+  #create_configmap "$KORIFI_GATEWAY_NAMESPACE"
 
   echo "Waiting for gateway-api-admission-server pod to become ready..."
   kubectl wait --for=condition=ready pod -n gateway-system -l name=gateway-api-admission-server --timeout=120s
 
-  create_gatewayclass
+  create_gatewayclass "$GATEWAY_CLASS_NAME"
 }
 
 
 case "$DEPLOY_TYPE_CONTOUR" in
-  "static")	install_contour_gateway_static;;
-  "dynamic")	install_contour_gateway_dynamic;;
+  "static")	install_contour_gateway_static "$KORIFI_GATEWAY_NAMESPACE" "$LOCAL_IMAGE_REGISTRY_FQDN" "$CONTOUR_VERSION";;
+  "dynamic")	install_contour_gateway_dynamic ""$CONTOUR_VERSION;;
   *)		echo "FAILURE: invalid deployment type '$DEPLOY_TYPE_CONTOUR' for Contour. Script aborted!";;
 esac
 
@@ -619,7 +511,7 @@ params=(
 )
 
 echo "[TRACE] helm upgrade --install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz \\
-    --namespace="$KORIFI_NAMESPACE" \\"
+    --namespace=$KORIFI_NAMESPACE \\"
 printf '    %s \\\n' "${params[@]}"
 echo "    --wait"
 
@@ -650,7 +542,7 @@ echo ""
 
 
 #TODO: Is this needed here? It's already created in function to install contour...
-create_configmap
+create_configmap "$KORIFI_GATEWAY_NAMESPACE"
 
 echo "Apply DNS and gateway configuration"
 echo "kubectl get service $ENVOY_SVC -n $KORIFI_GATEWAY_NAMESPACE -ojsonpath='{.status.loadBalancer.ingress[0]}'"
@@ -740,7 +632,7 @@ if [[ "${K8S_TYPE^^}" == "KIND" ]];then
   echo ""
   echo "    nohup $SUDOCMD kubectl port-forward -n korifi --address ::1 svc/korifi-api-svc 443:443 >> ${forwarding_logfile} 2>&1 &"
   echo ""
-  echo "- for apps traffic (port $CF_HTTP_SPORT):"
+  echo "- for apps traffic (port $CF_HTTPS_PORT):"
   echo ""
   echo "    nohup $SUDOCMD kubectl port-forward -n $KORIFI_GATEWAY_NAMESPACE --address ::1 svc/envoy-korifi $CF_HTTPS_PORT:$CF_HTTPS_PORT >> ${forwarding_logfile} 2>&1 &"
   echo ""

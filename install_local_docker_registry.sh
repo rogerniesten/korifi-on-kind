@@ -21,9 +21,6 @@ K8S_TYPE=${K8S_TYPE:-AKS}			# env requires this var, but this script doesn't, so
 K8S_CLUSTER_KORIFI=${K8S_CLUSTER_KORIFI:-dummy}	# env requires this var, but this script doesn't, so any value is fine
 . .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
-# Script should be executed as root (just sudo fails for some commands)
-strongly_advice_root
-
 
 ##
 ## Installing required tools
@@ -179,17 +176,6 @@ function copy_image_to_local_registry() {
   local image=$1
   local target_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
   target_registry=localhost:5000	# this doesn't use the internet, but pushes directly to the registry on localhost, which is way faster!
-
-#<  echo "[TRACE] copy_image_to_local_registry( '$image', '$target_registry')"
-#<  echo "[TRACE] LOCAL_IMAGE_REGISTRY_FQDN='$LOCAL_IMAGE_REGISTRY_FQDN'"
-#<
-#<  if [[ "$image" == "$target_registry"* || "$image" == "$LOCAL_IMAGE_REGISTRY_FQDN"* ]]; then
-#<    echo "[TRACE] strip localhost from '$image'"
-#<    # incase the image name already points to the target registry, strip it. That way the original image is pulled.
-#<    image="${image#${target_registry}/}"
-#<    image="${image#${LOCAL_IMAGE_REGISTRY_FQDN}/}"
-#<    echo "result: '$image'"
-#<  fi
 
   echo "[TRACE] $SUDOCMD docker pull $image"
   $SUDOCMD docker pull "$image"			# pull the image from docker hub

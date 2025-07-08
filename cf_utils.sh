@@ -52,7 +52,8 @@ function adjust_images_to_local_registry() {
 
 function kubectl_apply_locally() {
   local yaml_url=${1}
-  local filename=$(basename "$yaml_url")
+  local filename
+  filename=$(basename "$yaml_url")
   local local_yaml=${2:-$tmp/$filename}
 
   echo "[INFO] Downloading $filename from $yaml_url"
@@ -67,8 +68,8 @@ function kubectl_apply_locally() {
 
 
 function deploy_custom_cluster_builder() {
-  local image_registry=${1:-$LOCAL_IMAGE_REGISTRY_FQDN}
-  local clusterbuilder_name=${2:-$CLUSTERBUILDER_NAME}
+  local clusterbuilder_name=${1:-$CLUSTERBUILDER_NAME}
+  local image_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
 
   echo "[INFO ] Deploying custom ClusterBuilder (using only images from trusted registry)"
 
@@ -148,9 +149,8 @@ function install_kpack() {
   adjust_images_to_local_registry "$local_kpack_file" "" "" "$KPACK_VERSION"
 
   # Step 1: Apply only CRDs (initial apply to install CRDs)
-  #< echo "TRC: kubectl apply -f <(wget -qO- $local_kpack_file | yq e 'select(.kind == \"CustomResourceDefinition\")')"
-  #< kubectl apply -f <(wget -qO- "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
-  echo "TRC: kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+  echo "TRC: kubectl apply -f <(cat \"$local_kpack_file\" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+  # shellcheck disable=SC2002 # yq doesn't always work fine with yq ... file, hence the variant with cat: cat file | yq
   kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
 
 
@@ -167,7 +167,7 @@ function install_kpack() {
   kubectl apply --filename "$local_kpack_file"
 
   # Step 3: Deploy custom ClusterStack, ClusterStore and ClusterBuilder
-  deploy_custom_cluster_builder
+  deploy_custom_cluster_builder "$CLUSTERBUILDER_NAME" "$LOCAL_IMAGE_REGISTRY_FQDN"
 
   # Step 4: Verify kpack
   echo "Waiting for kpack pods are running..."
@@ -361,6 +361,7 @@ function add_to_etc_hosts() {
     # add a new line with the given add_string at the end of the file
     if ! grep "${add_string}" /etc/hosts >/dev/null; then
       echo "DBG: Adding as new line"
+      # shellcheck disable=SC2090 # SUOCMD is a command and should NOT be quoted
       echo "$add_string" | $SUDOCMD tee -a /etc/hosts > /dev/null
     else
       echo "DBG: Line already existing ($add_string)"
@@ -376,10 +377,12 @@ function add_to_etc_hosts() {
       case "${before_or_after^^}" in
         "BEFORE") 
 		echo "adding '$add_string' BEFORE '$search_string'"
+		# shellcheck disable=SC2090 # SUOCMD is a command and should NOT be quoted
 		$SUDOCMD sed -i "s/$search_string/$add_string $search_string/" /etc/hosts
 		;;
         "AFTER")
 		echo "adding '$add_string' AFTER '$search_string'"
+		# shellcheck disable=SC2090 # SUOCMD is a command and should NOT be quoted
 		$SUDOCMD sed -i "s/$search_string/$search_string $add_string/" /etc/hosts
 		;;
 	*) "WARNING: Invalid direction '$before_or_after'. No changes made!"
@@ -425,7 +428,7 @@ function ensure_korifi_ready() {
   done
   
   [[ "$READY" != "True" ]] && {
-    echo "[TRACE] kubectl get clusterbuilder "$CLUSTERBUILDER_NAME" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}"
+    echo "[TRACE] kubectl get clusterbuilder $CLUSTERBUILDER_NAME -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}"
     echo "❌ ClusterBuilder is not ready after timeout"
     exit 1
   }
@@ -442,14 +445,14 @@ function ensure_korifi_ready() {
   ## Check BuildTemplates & ClusterStack Are Ready (optional)
   echo "🔍 Checking ClusterStack is ready..."
   if ! kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q True; then
-    echo "[TRACE] kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep True"
+    echo "[TRACE] kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep True"
     echo "❌ ClusterStack 'base-stack' is not ready"
     exit 1
   fi
  
   echo "🔍 Checking ClusterStore is ready..."
   if ! kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q True; then
-    echo "[TRACE] kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep True"
+    echo "[TRACE] kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep True"
     echo "❌ ClusterStore not ready"
     exit 1
   fi
