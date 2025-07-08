@@ -126,8 +126,9 @@ echo ""
 
 
 # Prepare folder for git repositories
-mkdir -p "/home/%scriptpath${SUDO_USER}/git" 2>/dev/null
-cd "/home/${SUDO_USER}/git/korifi-on-kind" || exit 99
+homefolder="/home/${SUDO_USER:-$USER}"
+mkdir -p "${homefolder}/git" 2>/dev/null
+cd "${homefolder}/git/korifi-on-kind" || exit 99
 
 
 
@@ -176,7 +177,7 @@ kubectl apply -f "$scriptpath/broker-service.yaml"
 # wait until the pods are running
 echo "Waiting for pod to be ready..."
 # shellcheck disable=SC2090	# it's a command, so all escaping is on purpose here
-$SUDOCMD kubectl wait --for=create pods -l app=my-service-broker --timeout=300s
+kubectl wait --for=create pods -l app=my-service-broker --timeout=300s
 echo "All pods are ready. Proceeding with next steps..."
 
 
