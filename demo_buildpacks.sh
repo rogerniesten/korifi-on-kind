@@ -276,9 +276,6 @@ curl -I --insecure "https://$app_url:$CF_HTTPS_PORT"
 echo ""
 
 
-echo "Finishing after pushing java hello world app"
-exit 0
-
 
 # Now push the sample Python app to korifi
 echo ""
@@ -291,32 +288,77 @@ echo "=============================================="
 APP_NAME="my-python-app"
 cd "${APPS_DIR}/python" || exit 99
 echo ""
+ls -la
+echo ""
 
+function show_store_sources() {
+  local clusterstore=$1
+
+  echo "[DEBUG] snipped from clusterstore '$clusterstore'"
+  echo "specs.sources:"
+  kubectl get clusterstore "$clusterstore" -o yaml | yq eval ".spec.sources"
+}
+
+function add_buildpack() {
+  local buildpack_name="$1"
+  local buildpack_reg="${2:-index.docker.io}"
+  local buildpack_path="${3:-paketobuildpacks}"
+  local clusterbuilder="${4:-$CLUSTERBUILDER_NAME}"
+  local local_registry="${5:-$LOCAL_IMAGE_REGISTRY_FQDN}"
+
+  local clusterstore storefile builderfile buildpack
+  buildpack="$buildpack_reg/$buildpack_path/$buildpack_name"
+  if [[ -n "$local_registry" ]];then
+    buildpack="$local_registry/$buildpack"
+  fi
+
+  # retrieve the name of the clusterstore used by Korifi
+  clusterstore=$(kubectl get clusterbuilder "$clusterbuilder" -o jsonpath='{.spec.store.name}')
+  assert test -n "$clusterstore"
+  storefile="$tmp/clusterstore_${clusterstore}.yaml"
+  builderfile="$tmp/clusterbuilder_${clusterbuilder}.yaml"
+
+  # Get the current clusterstore ...
+  kubectl get clusterstore "$clusterstore" -o yaml > "$storefile"
+
+  echo "[DEBUG] Situation before:"
+  show_store_sources "$clusterstore"
+
+  echo "[INFO ] Adding '$buildpack' to clusterstore '$clusterstore' (as python is not included by default in Korifi)"
+  # ... and add the image under spec.sources
+  yq -i eval ".spec.sources |= (
+    select(. | map(select(.image == \"$buildpack\")) | length == 0)
+    | . + [{\"image\": \"$buildpack\"}]
+    // .
+  )" "$storefile"
+
+  # apply the changes to kubernetes
+  kubectl apply -f "$storefile"
+
+  echo "[INFO ] Adding '$buildpack_name' on top of the spec.order group list of clusterbuilder '$clusterbuilder'"
+  # The tutorial doesn't mention why it has to be on top. I assume this is done in the tutorial to prevent other buildpacks to do an attempt (performance and reliability)
+  kubectl get clusterbuilder "$CLUSTERBUILDER_NAME" -o yaml > "$builderfile"
+  yq -i eval ".spec.order |= (
+    select(. | map(select(.group[].id == \"paketo-buildpacks/$buildpack_name\")) | length == 0) 
+    | [{\"group\": [{\"id\": \"paketo-buildpacks/$buildpack_name\"}]}] + .)" "$builderfile"
+
+  kubectl apply -f "$builderfile"
+
+  echo "[DEBUG] Situation after:"
+  show_store_sources "$clusterstore"
+}
 
 ## Add paketo-buildpacks/python to the clusterstore
 echo "Adding paketo-buildpacks/python to clusterstore (as python is not included by default in Korifi)"
-# Get the current clusterstore and add the image under spec.sources
-kubectl get clusterstore cf-default-buildpacks -o yaml | \
-  yq eval '.spec.sources |= (
-    select(. | map(select(.image == "gcr.io/paketo-buildpacks/python")) | length == 0)
-    | . + [{"image": "gcr.io/paketo-buildpacks/python"}]
-    // .
-  )' - > "$tmp/cf-default-buildpacks-updated.yaml"
-# apply the updated yaml to the clusterstore 
-kubectl apply -f "$tmp/cf-default-buildpacks-updated.yaml"
-
-
-echo Adding kaketo-buildbakcs-python on top of the spec.order group list of the clusterbuilder
-# The tutorial doesn't mention why it has to be on top. I assume this is done in the tutorial to prevent other buildpacks to do an attempt (performance and reliability)
-kubectl get clusterbuilder cf-kpack-cluster-builder -n tutorial-space -o yaml | \
-	yq eval '.spec.order |= (select(. | map(select(.group[].id == "paketo-buildpacks/python")) | length == 0) | [{"group": [{"id": "paketo-buildpacks/python"}]}] + .)' \
-        > "$tmp/cf-kpack-cluster-builder.yaml"
-kubectl apply -f "$tmp/cf-kpack-cluster-builder.yaml" -n tutorial-space
-echo ""
+add_buildpack "python"
 
 
 echo "Now push the python app to korifi"
-cf push "$APP_NAME"
+#cf push "$APP_NAME"
+# For some reason Korifi doesn't recognize that we want to push a Python application, so can't determin
+# which buildpack to use (at least not the first time).
+# By explicitly telling the command to use the python buildback, all works fine.
+cf push "$APP_NAME" -b paketo-buildpacks/python
 echo ""
 
 # Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
