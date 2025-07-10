@@ -71,6 +71,11 @@ function deploy_custom_cluster_builder() {
   local clusterbuilder_name=${1:-$CLUSTERBUILDER_NAME}
   local image_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
 
+  local paketo_registry=index.docker.io
+  if [[ -n "$image_registry" ]];then
+    paketo_registry="${image_registry}/${paketo_registry}"
+  fi
+
   echo "[INFO ] Deploying custom ClusterBuilder (using only images from trusted registry)"
 
 ## NOTE: Service account kpack-service-account will be created in namespace $ROOT_NAMESPACE (default:
@@ -78,6 +83,7 @@ function deploy_custom_cluster_builder() {
 ##       Make sure it's correctly referenced in ClusterStack ClusterStore CluisterBuilder
 
   # TODO: Use vars for the images (also in install_local_image_registry.sh)
+  kubectl delete clusterstack base-stack >/dev/null 2>&1 || true
   kubectl apply -f - <<EOF
 apiVersion: kpack.io/v1alpha2
 kind: ClusterStack
@@ -86,11 +92,12 @@ metadata:
 spec:
   id: io.buildpacks.stacks.jammy
   buildImage:
-    image: $image_registry/index.docker.io/paketobuildpacks/build-jammy-full
+    image: $paketo_registry/paketobuildpacks/build-jammy-full
   runImage:
-    image: $image_registry/index.docker.io/paketobuildpacks/run-jammy-full
+    image: $paketo_registry/paketobuildpacks/run-jammy-full
 EOF
 
+  kubectl delete clusterstore base-store >/dev/null 2>&1 || true
   kubectl apply -f - <<EOF
 apiVersion: kpack.io/v1alpha2
 kind: ClusterStore
@@ -98,21 +105,22 @@ metadata:
   name: base-store
 spec:
   sources:
-    - image: "$image_registry/index.docker.io/paketobuildpacks/go"
-    - image: "$image_registry/index.docker.io/paketobuildpacks/java"
-    - image: "$image_registry/index.docker.io/paketobuildpacks/nodejs"
-    - image: "$image_registry/index.docker.io/paketobuildpacks/procfile"
-    - image: "$image_registry/index.docker.io/paketobuildpacks/ruby"
+    - image: "$paketo_registry/paketobuildpacks/go"
+    - image: "$paketo_registry/paketobuildpacks/java"
+    - image: "$paketo_registry/paketobuildpacks/nodejs"
+    - image: "$paketo_registry/paketobuildpacks/procfile"
+    - image: "$paketo_registry/paketobuildpacks/ruby"
     # Add more as needed
 EOF
 
+  kubectl delete clusterbuilder "$clusterbuilder_name" >/dev/null 2>&1 || true
   kubectl apply -f - <<EOF
 apiVersion: kpack.io/v1alpha2
 kind: ClusterBuilder
 metadata:
   name: $clusterbuilder_name
 spec:
-  tag: $image_registry/korifi-kpack-builder
+  tag: $DOCKER_REGISTRY_BUILDER_REPOSITORY
   serviceAccountRef:
     name: kpack-service-account
     namespace: $ROOT_NAMESPACE
@@ -435,11 +443,13 @@ function ensure_korifi_ready() {
   echo "✅ ClusterBuilder is ready"
 
   ## Validate Registry Reachability (optional)
-  echo "🌐 Testing access to internal registry..."
-  if ! curl -s --connect-timeout 5 "http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/" > /dev/null; then
-    echo "[TRACE] curl -s --connect-timeout 5 http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/"
-    echo "❌ Cannot reach internal image registry"
-    exit 1
+  if [[ -n "$LOCAL_IMAGE_REGISTRY_FQDN" ]]; then
+    echo "🌐 Testing access to internal registry..."
+    if ! curl -s --connect-timeout 5 "http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/" > /dev/null; then
+      echo "[TRACE] curl -s --connect-timeout 5 http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/"
+      echo "❌ Cannot reach internal image registry"
+      exit 1
+    fi
   fi
 
   ## Check BuildTemplates & ClusterStack Are Ready (optional)
