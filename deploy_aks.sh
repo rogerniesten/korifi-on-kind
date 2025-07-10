@@ -214,7 +214,7 @@ function install_azure_kubernetes_cluster() {
 	location=\"$location\" \\
 	dnsPrefix=\"${aks_name}-dns\" \\
 	kubernetesVersion=\"$K8S_VERSION\" \\
-	nodeResourceGroup=\"${resource_group}_MC\" \\
+	nodeResourceGroup=\"${resource_group}_mc\" \\
 	authorizedIPRanges=\"[\\\"${my_ip}\\\"]\" \\
 	guidValue=\"$aks_guid\""
 
@@ -227,7 +227,7 @@ function install_azure_kubernetes_cluster() {
   	 location="$location" \
   	 dnsPrefix="${aks_name}-dns" \
   	 kubernetesVersion="$K8S_VERSION" \
-  	 nodeResourceGroup="${resource_group}_MC" \
+  	 nodeResourceGroup="${resource_group}_mc" \
   	 authorizedIPRanges="[\"${my_ip}\"]" \
   	 guidValue="$aks_guid"
   result=$?
@@ -244,6 +244,89 @@ function install_azure_kubernetes_cluster() {
 
 # TODO: Enable once the AKS cluster will be deployed in Azure in scope of this script
 install_azure_kubernetes_cluster "$K8S_CLUSTER_KORIFI"
+
+
+
+function create_nsg_outbound_rule() {
+  local node_resource_group="$1"
+  local nsg_name="$2"
+  local priority="$3"
+  local access="$4"
+  local name="$5"
+  local desc="${6:-}"
+  local dst_prefix="${7:-'*'}"
+  local dst_ports="${8:-'*'}"
+  local protocol="${9:-*}"
+  local src_prefix="${10-VirtualNetwork}"
+
+  echo "[TRACE] az network nsg rule create \\
+    --resource-group $node_resource_group \\
+    --nsg-name $nsg_name \\
+    --name $name \\
+    --priority $priority \\
+    --direction Outbound \\
+    --access $access \\
+    --protocol $protocol \\
+    --source-address-prefixes $src_prefix \\
+    --destination-address-prefixes $dst_prefix \\
+    --destination-port-ranges $dst_ports \\
+    --description \"${desc}\""
+
+    az network nsg rule create \
+    --resource-group "$node_resource_group" \
+    --nsg-name "$nsg_name" \
+    --name "$name" \
+    --priority "$priority" \
+    --direction Outbound \
+    --access "$access" \
+    --protocol "$protocol" \
+    --source-address-prefixes "$src_prefix" \
+    --destination-address-prefixes "$dst_prefix" \
+    --destination-port-ranges $dst_ports \
+    --description "${desc}"
+}
+
+
+function configure_networking() {
+  local node_resource_group="${K8S_CLUSTER_KORIFI}_mc"
+  local vnet_name nsg_id nsg_name registry_ip aks_controlplane_domain aks_controlplane_ip
+  echo "[DEBUG] retrieving name of Network Security Group"
+  echo "[TRACE] vnet_name=\$(az network vnet list --resource-group "$node_resource_group" --query '[0].name' --output tsv)"
+  vnet_name=$(az network vnet list --resource-group "$node_resource_group" --query '[0].name' --output tsv)
+  echo "[TRACE] nsg_id=\$(az network vnet subnet list --resource-group $node_resource_group --vnet-name $vnet_name --query '[0].networkSecurityGroup.id' --output tsv)"
+  nsg_id=$(az network vnet subnet list --resource-group "$node_resource_group" --vnet-name "$vnet_name" --query '[0].networkSecurityGroup.id' --output tsv)
+  echo "[TRACE] nsg_name=\$(az network nsg list --resource-group $node_resource_group --query \"[?id=='$nsg_id']\".name --output tsv)"
+  nsg_name=$(az network nsg list --resource-group "$node_resource_group" --query "[?id=='$nsg_id']".name --output tsv)
+
+  echo "[DEBUG] get image registry IP"
+  echo "[TRACE] registry_ip=\$(dig +short $LOCAL_IMAGE_REGISTRY_FQDN)"
+  registry_ip=$(dig +short "$LOCAL_IMAGE_REGISTRY_FQDN")
+  
+  echo "[DEBUG] get controlplan IP"
+  echo "[TRACE] aks_controlplane_domain=\$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')"
+  aks_controlplane_domain=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')
+  echo "[TRACE] aks_controlplane_ip=\$(echo \"$aks_controlplane_domain\" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)"
+  aks_controlplane_ip=$(echo "$aks_controlplane_domain" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)
+
+  echo "[INFO ] Create network firewall rules"
+  create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 140 Allow Allow-ControlPlane "Allow AKS node to access Controlplane"   "$aks_ctrlplane_ip" "443"
+  create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 150 Allow Allow-K8s-API      "Allow AKS node to access K8s API server" "10.0.0.1"          "443"
+  create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 200 Allow Allow-Registry     "Allow local container registry"          "$registry_ip"      "443 5000"
+  create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 400 Deny  Deny-Internet      "Block all outbound internet access"
+
+  echo "[DEBUG] Overview firewall rules"
+  echo "[TRACE] az network nsg rule list --resource-group $node_resource_group --nsg-name $nsg_name --include-default --output table"
+  az network nsg rule list --resource-group "$node_resource_group" --nsg-name "$nsg_name" --include-default --output table
+
+}
+
+
+## NOTE: Original goal was to ensure no external images were pulled
+# Unfortunately this doesn't work reliably and therefore this has been commented out
+# The code (see functions above) have ben preserved for future reference.
+# TODO: Investigate further to get it working reliably!
+#configure_networking
+
 
 
 
