@@ -59,7 +59,7 @@
             "value": false
         },
         "nodeResourceGroup": {
-            "value": "korifi-aks-dev1_MC"
+            "value": "korifi-aks-dev1_mc"
         },
         "upgradeChannel": {
             "value": "patch"
