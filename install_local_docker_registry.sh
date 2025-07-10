@@ -239,6 +239,18 @@ copy_image_to_local_registry index.docker.io/paketobuildpacks/nodejs
 copy_image_to_local_registry index.docker.io/paketobuildpacks/procfile
 copy_image_to_local_registry index.docker.io/paketobuildpacks/ruby
 # TODO: add other required buildpacks (e.g. python) here!
+copy_image_to_local_registry index.docker.io/paketobuildpacks/python
+# ...
+
+
+##
+# Other random images that might be useful
+#
+copy_image_to_local_registry index.docker.io/curlimages/curl:latest
+copy_image_to_local_registry index.docker.io/busybox:latest
+copy_image_to_local_registry index.docker.io/alpine:latest
+copy_image_to_local_registry index.docker.io/ubuntu:latest
+
 
 #
 # End message
