@@ -214,6 +214,7 @@ install_if_missing snap yq yq "yq --version"
 install_if_missing snap kubectl snap 
 
 install_go_if_missing "${GO_VERSION}"
+install_pack_if_missing
 
 # Make sure kubenetes user and cf account are in sync
 sync_k8s_user "$ADMIN_USERNAME"

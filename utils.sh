@@ -287,6 +287,23 @@ function install_kind_if_missing() {
 }
 
 
+function install_pack_if_missing() {
+  local command="pack"
+  local version="$PACK_VERSION"
+  local url="https://github.com/buildpacks/pack/releases/download/v${version}/pack-v${version}-linux.tgz"
+  local bin_folder="/usr/local/bin"
+
+  if [[ -f "$bin_folder/$command" ]]; then
+    echo "✅ $command is already installed."
+    return 0
+  fi
+
+  echo "Installing $command ..."
+  curl -sL "$url" | tar -xzv
+  sudo mv pack /usr/local/bin
+  echo "...done"
+}
+
 
 function duration2sec() {
   local input="${1// /}"  # remove all spaces
