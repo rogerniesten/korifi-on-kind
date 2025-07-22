@@ -291,12 +291,38 @@ echo ""
 ls -la
 echo ""
 
-function show_store_sources() {
-  local clusterstore=$1
+function show_buildpacks() {
+  local clusterbuilder=$1
+  local clusterstore=$2
 
+  echo ""
+  echo "----------------------------------------------------------------"
   echo "[DEBUG] snipped from clusterstore '$clusterstore'"
   echo "specs.sources:"
   kubectl get clusterstore "$clusterstore" -o yaml | yq eval ".spec.sources"
+
+  echo "[DEBUG] snipped from clusterbuilder '$clusterstore'"
+  echo "specs.order:"
+  kubectl get clusterbuilder "$clusterbuilder" -o yaml | yq eval ".spec.order"
+
+  echo "[DEBUG] cf buildpacks"
+  cf buildpacks
+  echo "----------------------------------------------------------------"
+  echo ""
+}
+
+# Wait for the ClusterBuilder to be ready
+function wait_for_clusterbuilder_ready() {
+  local clusterbuilder=$1
+  echo "[DEBUG] Waiting for ClusterBuilder '$clusterbuilder' to become Ready..."
+  while true; do
+    ready=$(kubectl get clusterbuilder "$clusterbuilder" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+    if [[ "$ready" == "True" ]]; then
+      echo "[DEBUG] ClusterBuilder '$clusterbuilder' is ready."
+      break
+    fi
+    sleep 1
+  done
 }
 
 function add_buildpack() {
@@ -306,46 +332,53 @@ function add_buildpack() {
   local clusterbuilder="${4:-$CLUSTERBUILDER_NAME}"
   local local_registry="${5:-$LOCAL_IMAGE_REGISTRY_FQDN}"
 
-  local clusterstore storefile builderfile buildpack
+  local clusterstore buildpack buildpack_id
   buildpack="$buildpack_reg/$buildpack_path/$buildpack_name"
+
   if [[ -n "$local_registry" ]];then
     buildpack="$local_registry/$buildpack"
   fi
 
+  buildpack_id=$(pack inspect-buildpack "$buildpack" | awk '/Detection Order:/ {getline; getline; print $2}' | sed 's/@.*//')
+
   # retrieve the name of the clusterstore used by Korifi
   clusterstore=$(kubectl get clusterbuilder "$clusterbuilder" -o jsonpath='{.spec.store.name}')
   assert test -n "$clusterstore"
-  storefile="$tmp/clusterstore_${clusterstore}.yaml"
-  builderfile="$tmp/clusterbuilder_${clusterbuilder}.yaml"
-
-  # Get the current clusterstore ...
-  kubectl get clusterstore "$clusterstore" -o yaml > "$storefile"
 
   echo "[DEBUG] Situation before:"
-  show_store_sources "$clusterstore"
+  show_buildpacks "$clusterbuilder" "$clusterstore"
 
   echo "[INFO ] Adding '$buildpack' to clusterstore '$clusterstore' (as python is not included by default in Korifi)"
-  # ... and add the image under spec.sources
-  yq -i eval ".spec.sources |= (
-    select(. | map(select(.image == \"$buildpack\")) | length == 0)
-    | . + [{\"image\": \"$buildpack\"}]
-    // .
-  )" "$storefile"
-
-  # apply the changes to kubernetes
-  kubectl apply -f "$storefile"
+  if ! kubectl get clusterstore "$clusterstore" -o json | jq -e ".spec.sources[]?.image == \"$buildpack\"" > /dev/null; then
+    local existing_sources merged_sources full_patch
+    echo "🔧 Adding buildpack to ClusterStore: $buildpack"
+    existing_sources=$(kubectl get clusterstore "$clusterstore" -o json | jq '.spec.sources')		# get existin sources
+    merged_sources=$(echo "$existing_sources" | jq --arg image "$buildpack" '. + [{image: $image}]')	# merge new source into the existing array
+    full_patch=$(jq -n --argjson sources "$merged_sources" '{"spec": {"sources": $sources}}')		# create full patch to payload with merged sources
+    kubectl patch clusterstore "$clusterstore" --type merge -p "$full_patch"				# apply patch
+  else
+    echo "✅ Buildpack already present in ClusterStore: $buildpack"
+  fi
 
   echo "[INFO ] Adding '$buildpack_name' on top of the spec.order group list of clusterbuilder '$clusterbuilder'"
   # The tutorial doesn't mention why it has to be on top. I assume this is done in the tutorial to prevent other buildpacks to do an attempt (performance and reliability)
-  kubectl get clusterbuilder "$CLUSTERBUILDER_NAME" -o yaml > "$builderfile"
-  yq -i eval ".spec.order |= (
-    select(. | map(select(.group[].id == \"paketo-buildpacks/$buildpack_name\")) | length == 0) 
-    | [{\"group\": [{\"id\": \"paketo-buildpacks/$buildpack_name\"}]}] + .)" "$builderfile"
+  if ! kubectl get clusterbuilder "$clusterbuilder" -o json | jq -e ".spec.order[].group[]?.id == \"$buildpack_id\"" > /dev/null; then
+    local existing_order new_group merged_order full_patch
+    echo "🔧 Adding buildpack to ClusterBuilder: $buildpack_id"
+    new_group="{\"group\": [{\"id\": \"$buildpack_id\"}]}"                                      	# create json patch that appends to the array
+    existing_order=$(kubectl get clusterbuilder "$clusterbuilder" -o json | jq '.spec.order')		# Get existing .spec.order
+    merged_order=$(echo "$existing_order" | jq ". + [ $new_group ]")					# Append new group with buildpack id
+    full_patch=$(jq -n --argjson order "$merged_order" '{"spec": {"order": $order}}')			# Construct full patch with new order
+    kubectl patch clusterbuilder "$clusterbuilder" --type merge -p "$full_patch"			# Apply patch
+  else
+    echo "✅ Buildpack already present in ClusterBuilder: $buildpack_id"
+  fi
 
-  kubectl apply -f "$builderfile"
+  # avoid race condition (wait for python to be available)
+  wait_for_clusterbuilder_ready "$clusterbuilder"
 
   echo "[DEBUG] Situation after:"
-  show_store_sources "$clusterstore"
+  show_buildpacks "$clusterbuilder" "$clusterstore"
 }
 
 ## Add paketo-buildpacks/python to the clusterstore
@@ -358,7 +391,14 @@ echo "Now push the python app to korifi"
 # For some reason Korifi doesn't recognize that we want to push a Python application, so can't determin
 # which buildpack to use (at least not the first time).
 # By explicitly telling the command to use the python buildback, all works fine.
-cf push "$APP_NAME" -b paketo-buildpacks/python
+python_buildpack="paketo-buildpacks/python"
+#? if [[ -n "$LOCAL_IMAGE_REGISTRY_FQDN}" ]];then
+#?   echo "[DEBUG] using local registry '$LOCAL_IMAGE_REGISTRY_FQDN'"
+#?   python_buildpack="$LOCAL_IMAGE_REGISTRY_FQDN/$python_buildpack"
+#? fi
+
+echo "[TRACE] cf push $APP_NAME -b $python_buildpack"
+cf push "$APP_NAME" -b "$python_buildpack"
 echo ""
 
 # Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it

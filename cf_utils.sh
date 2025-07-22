@@ -132,7 +132,13 @@ spec:
     kind: ClusterStore
   order:
     - group:
+        - id: paketo-buildpacks/go
+    - group:
         - id: paketo-buildpacks/java
+    - group:
+        - id: paketo-buildpacks/nodejs
+    - group:
+        - id: paketo-buildpacks/procfile
     - group:
         - id: paketo-buildpacks/nodejs
 EOF
