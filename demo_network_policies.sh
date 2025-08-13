@@ -320,7 +320,7 @@ function get_task_result() {
     sleep 1
     task_info=$(cf task "$curl_app_name" "$task_id")
   done
-  echo "v"							>/dev/tty
+  echo "✓"							>/dev/tty
 
   task_fail_reason=$(echo "$task_info" | grep 'failure reason:' | awk '{for (i=3; i<=NF; i++) printf $i (i<NF ? " " : "\n")}' || echo "OK")
   task_fail_reason="${task_fail_reason:0:60}"
