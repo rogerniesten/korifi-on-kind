@@ -59,7 +59,7 @@
             "value": false
         },
         "nodeResourceGroup": {
-            "value": "korifi-aks-dev1_MC"
+            "value": "korifi-aks-dev1_mc"
         },
         "upgradeChannel": {
             "value": "patch"
@@ -181,7 +181,7 @@
             "value": 0
         },
         "agentCount": {
-            "value": 3
+            "value": 1
         },
         "scaleSetEvictionPolicy": {
             "value": "Delete"
@@ -208,19 +208,19 @@
             "value": "System"
         },
         "agentMaxPods": {
-            "value": 30
+            "value": 100
         },
         "agentOSType": {
             "value": "Linux"
         },
         "agentVMSize": {
-            "value": "Standard_D2_v3"
+            "value": "Standard_D4_v3"
         },
         "agentMaxCount": {
             "value": 5
         },
         "agentMinCount": {
-            "value": 3
+            "value": 1
         },
         "enableAutoScaling": {
             "value": true

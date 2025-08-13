@@ -394,9 +394,9 @@
       }
     },
     "agentCount": {
-      "defaultValue": 3,
+      "defaultValue": 1,
       "minValue": 1,
-      "maxValue": 50,
+      "maxValue": 5,
       "type": "Int",
       "metadata": {
         "description": "The number of agent nodes for the cluster. Production workloads have a recommended minimum of 3."
@@ -471,7 +471,7 @@
       }
     },
     "agentMaxPods": {
-      "defaultValue": 30,
+      "defaultValue": 100,
       "type": "Int",
       "metadata": {
         "description": "Specifies the maximum number of pods that can run on a node in the agent node pool. The maximum number of pods per node in an AKS cluster is 250. The default maximum number of pods per node varies between kubenet and Azure CNI networking, and the method of cluster deployment."
@@ -489,7 +489,7 @@
       }
     },
     "agentVMSize": {
-      "defaultValue": "Standard_B2s",
+      "defaultValue": "Standard_B2ms",
       "type": "String",
       "metadata": {
         "description": "The size of the Virtual Machine."
@@ -503,7 +503,7 @@
       }
     },
     "agentMinCount": {
-      "defaultValue": 3,
+      "defaultValue": 1,
       "type": "Int",
       "metadata": {
         "description": "Specifies the minimum number of nodes for auto-scaling for the system node pool."
@@ -792,11 +792,11 @@
           {
             "name": "agentpool",
             "osDiskSizeGB": "[parameters('osDiskSizeGB')]",
-            "count": 2,
+            "count": 1,
             "enableAutoScaling": true,
-            "minCount": 2,
+            "minCount": 1,
             "maxCount": 5,
-            "vmSize": "Standard_B2s",
+            "vmSize": "Standard_B2ms",
             "osType": "Linux",
             "osSKU": "Ubuntu",
             "type": "VirtualMachineScaleSets",

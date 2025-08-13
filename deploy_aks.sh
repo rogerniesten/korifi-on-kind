@@ -81,23 +81,11 @@ install_azure_cli
 
 
 ##
-## Check Azure variables
+## Check Azure credentials and variables
 ##
 
-prompt_if_missing AZ_SUBSCRIPTION_ID "var"    "Enter Azure Subscription ID"          "$AZ_ENV_FILE" validate_guid
-prompt_if_missing AZ_APP_ID          "var"    "Enter Azure Service Principal App ID" "$AZ_ENV_FILE" validate_guid
-prompt_if_missing AZ_CLIENT_SECRET   "secret" "Enter Azure Service Principal Secret" "$AZ_ENV_FILE" validate_not_empty
-prompt_if_missing AZ_TENANT_ID       "var"    "Enter Azure Tenant ID"                "$AZ_ENV_FILE" validate_guid
-
-
-## Azure Service Principal
-
-# Define maximum retry attempts (optional)
-MAX_ATTEMPTS=3
-ATTEMPT=1
-
 # Function to show instructions for creating the Service Principal (if needed)
-show_instructions() {
+function show_instructions() {
   echo ""
   echo "It seems the Service Principal login failed. Please ensure that the Service Principal exists."
   echo "You can create a Service Principal in Azure CLI or via the Azure Portal."
@@ -113,58 +101,75 @@ show_instructions() {
   echo ""
 }
 
-# Keep trying to login, if not function (re-) enter credential os Azure Service Principal
-until [ $ATTEMPT -gt $MAX_ATTEMPTS ]
-do
-  # Attempt login using Service Principal
-  echo "Attempt to login: az login --service-principal -u \"$AZ_APP_ID\" -p \"*******************\" --tenant \"$AZ_TENANT_ID\""
-  LOGIN_OUTPUT=$(az login --service-principal -u "$AZ_APP_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID" 2>&1)
-  LOGIN_SUCCESSFUL=$?
+function login_to_azure() {
+   prompt_if_missing AZ_SUBSCRIPTION_ID "var"    "Enter Azure Subscription ID"          "$AZ_ENV_FILE" validate_guid
+   prompt_if_missing AZ_APP_ID          "var"    "Enter Azure Service Principal App ID" "$AZ_ENV_FILE" validate_guid
+   prompt_if_missing AZ_CLIENT_SECRET   "secret" "Enter Azure Service Principal Secret" "$AZ_ENV_FILE" validate_not_empty
+   prompt_if_missing AZ_TENANT_ID       "var"    "Enter Azure Tenant ID"                "$AZ_ENV_FILE" validate_guid
 
-  echo "LOGIN_OUTPUT: $LOGIN_OUTPUT"
-  echo "LOGIN_SUCCESSFUL: $LOGIN_SUCCESSFUL"
+   # Define maximum retry attempts (optional)
+   MAX_ATTEMPTS=3
+   ATTEMPT=1
 
-  # Check if the login was successful
-  if [[ $LOGIN_SUCCESSFUL == 0 ]]; then
-    echo "Service Principal login successful!"
-    break  # Exit loop if login is successful
+   # Keep trying to login, if not function (re-) enter credential os Azure Service Principal
+   until [ $ATTEMPT -gt $MAX_ATTEMPTS ]
+   do
+    # Attempt login using Service Principal
+    echo "Attempt to login: az login --service-principal -u \"$AZ_APP_ID\" -p \"${AZ_CLIENT_SECRET:0:4}*******************\" --tenant \"$AZ_TENANT_ID\""
+    LOGIN_OUTPUT=$(az login --service-principal -u "$AZ_APP_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID" 2>&1)
+    LOGIN_SUCCESSFUL=$?
+
+    echo "LOGIN_OUTPUT: $LOGIN_OUTPUT"
+    echo "LOGIN_SUCCESSFUL: $LOGIN_SUCCESSFUL"
+
+    # Check if the login was successful
+    if [[ $LOGIN_SUCCESSFUL == 0 ]]; then
+      echo "Service Principal login successful!"
+      break  # Exit loop if login is successful
+    fi
+
+    echo "Login attempt $ATTEMPT failed! Details: $LOGIN_OUTPUT"
+    show_instructions
+
+    # Ask the user to press Enter to retry or CTRL+C to abort
+    echo "After creation provide the credentials of the Service Principal or press CTRL_C to abort"
+    read -rp  "App-ID:        " AZ_APP_ID
+    read -srp "Client Secret: " AZ_CLIENT_SECRET
+    echo ""     # to force newline
+    read -rp  "Tenant ID:     " AZ_TENANT_ID
+
+    export AZ_APP_ID=$AZ_APP_ID
+    export AZ_CLIENT_SECRET=$AZ_CLIENT_SECRET
+    export AZ_TENANT_ID=$AZ_TENANT_ID
+
+    # Increment the attempt counter
+    ATTEMPT=$((ATTEMPT + 1))
+  done
+
+  # If login was not successful after max attempts, exit with error
+  if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
+    echo "Failed to login after $MAX_ATTEMPTS attempts."
+    exit 1
   fi
+}
 
-  echo "Login attempt $ATTEMPT failed! Details: $LOGIN_OUTPUT"
 
-  # Show instructions for creating the Service Principal
-  show_instructions
-
-  # Ask the user to press Enter to retry or CTRL+C to abort
-  echo "After creation provide the credentials of the Service Principal or press CTRL_C to abort"
-  read -rp  "App-ID:        " AZ_APP_ID
-  read -srp "Client Secret: " AZ_CLIENT_SECRET
-  echo ""	# to force newline
-  read -rp  "Tenant ID:     " AZ_TENANT_ID
-
-  export AZ_APP_ID=$AZ_APP_ID
-  export AZ_CLIENT_SECRET=$AZ_CLIENT_SECRET
-  export AZ_TENANT_ID=$AZ_TENANT_ID
-
-  # Increment the attempt counter
-  ATTEMPT=$((ATTEMPT + 1))
-done
-
-# If login was not successful after max attempts, exit with error
-if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
-  echo "Failed to login after $MAX_ATTEMPTS attempts."
-  exit 1
+if az account show > /dev/null 2>&1 ; then
+  echo "Already logged in to Azure."
+else
+  echo "Not logged in to Azure yet, let's login now."
+  login_to_azure
 fi
 
 
 echo ""
 echo "Azure Data"
 echo "=========="
-echo "SubscriptionID: $AZ_SUBSCRIPTION_ID"
+echo "SubscriptionID:	$AZ_SUBSCRIPTION_ID"
 echo "Service Principal:"
-echo "	App-ID:         $AZ_APP_ID"
-echo "	Client Secret:  ${AZ_CLIENT_SECRET:0-4}..."
-echo "	Tenant ID:      $AZ_TENANT_ID"
+echo "- App-ID:         $AZ_APP_ID"
+echo "- Client Secret:  ${AZ_CLIENT_SECRET:0-4}..."
+echo "- Tenant ID:      $AZ_TENANT_ID"
 echo ""
 echo "Now we can continue with the creation of the AKS cluster."
 echo ""
@@ -209,7 +214,7 @@ function install_azure_kubernetes_cluster() {
 	location=\"$location\" \\
 	dnsPrefix=\"${aks_name}-dns\" \\
 	kubernetesVersion=\"$K8S_VERSION\" \\
-	nodeResourceGroup=\"${resource_group}_MC\" \\
+	nodeResourceGroup=\"${resource_group}_mc\" \\
 	authorizedIPRanges=\"[\\\"${my_ip}\\\"]\" \\
 	guidValue=\"$aks_guid\""
 
@@ -222,7 +227,7 @@ function install_azure_kubernetes_cluster() {
   	 location="$location" \
   	 dnsPrefix="${aks_name}-dns" \
   	 kubernetesVersion="$K8S_VERSION" \
-  	 nodeResourceGroup="${resource_group}_MC" \
+  	 nodeResourceGroup="${resource_group}_mc" \
   	 authorizedIPRanges="[\"${my_ip}\"]" \
   	 guidValue="$aks_guid"
   result=$?
@@ -230,7 +235,7 @@ function install_azure_kubernetes_cluster() {
 
   # Get credentials
   echo " - Get credentials"
-  az aks get-credentials --resource-group "$resource_group" --name "$aks_name"
+  az aks get-credentials --resource-group "$resource_group" --name "$aks_name" --overwrite-existing
 
   # Wait for node readiness
   echo " - Waiting for node readiness"
@@ -239,6 +244,95 @@ function install_azure_kubernetes_cluster() {
 
 # TODO: Enable once the AKS cluster will be deployed in Azure in scope of this script
 install_azure_kubernetes_cluster "$K8S_CLUSTER_KORIFI"
+
+
+
+function create_nsg_outbound_rule() {
+  local node_resource_group="$1"
+  local nsg_name="$2"
+  local priority="$3"
+  local access="$4"
+  local name="$5"
+  local desc="${6:-}"
+  local dst_prefix="${7:-'*'}"
+  local dst_ports="${8:-'*'}"
+  local protocol="${9:-*}"
+  local src_prefix="${10-VirtualNetwork}"
+
+  echo "[TRACE] az network nsg rule create \\
+    --resource-group $node_resource_group \\
+    --nsg-name $nsg_name \\
+    --name $name \\
+    --priority $priority \\
+    --direction Outbound \\
+    --access $access \\
+    --protocol $protocol \\
+    --source-address-prefixes $src_prefix \\
+    --destination-address-prefixes $dst_prefix \\
+    --destination-port-ranges $dst_ports \\
+    --description \"${desc}\""
+
+    az network nsg rule create \
+    --resource-group "$node_resource_group" \
+    --nsg-name "$nsg_name" \
+    --name "$name" \
+    --priority "$priority" \
+    --direction Outbound \
+    --access "$access" \
+    --protocol "$protocol" \
+    --source-address-prefixes "$src_prefix" \
+    --destination-address-prefixes "$dst_prefix" \
+    --destination-port-ranges $dst_ports \
+    --description "${desc}"
+}
+
+
+function configure_networking() {
+  local node_resource_group="${K8S_CLUSTER_KORIFI}_mc"
+  local vnet_name nsg_id nsg_name registry_ip aks_controlplane_domain aks_controlplane_ip
+  echo "[DEBUG] retrieving name of Network Security Group"
+  echo "[TRACE] vnet_name=\$(az network vnet list --resource-group "$node_resource_group" --query '[0].name' --output tsv)"
+  vnet_name=$(az network vnet list --resource-group "$node_resource_group" --query '[0].name' --output tsv)
+  echo "[TRACE] nsg_id=\$(az network vnet subnet list --resource-group $node_resource_group --vnet-name $vnet_name --query '[0].networkSecurityGroup.id' --output tsv)"
+  nsg_id=$(az network vnet subnet list --resource-group "$node_resource_group" --vnet-name "$vnet_name" --query '[0].networkSecurityGroup.id' --output tsv)
+  echo "[TRACE] nsg_name=\$(az network nsg list --resource-group $node_resource_group --query \"[?id=='$nsg_id']\".name --output tsv)"
+  nsg_name=$(az network nsg list --resource-group "$node_resource_group" --query "[?id=='$nsg_id']".name --output tsv)
+
+  echo "[DEBUG] get image registry IP"
+  echo "[TRACE] registry_ip=\$(dig +short $LOCAL_IMAGE_REGISTRY_FQDN)"
+  registry_ip=$(dig +short "$LOCAL_IMAGE_REGISTRY_FQDN")
+  
+  echo "[DEBUG] get controlplan IP"
+  echo "[TRACE] aks_controlplane_domain=\$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')"
+  aks_controlplane_domain=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')
+  echo "[TRACE] aks_controlplane_ip=\$(echo \"$aks_controlplane_domain\" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)"
+  aks_controlplane_ip=$(echo "$aks_controlplane_domain" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)
+
+  echo "[INFO ] Create network firewall rules"
+  create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 140 Allow Allow-ControlPlane "Allow AKS node to access Controlplane"   "$aks_ctrlplane_ip" "443"
+  create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 150 Allow Allow-K8s-API      "Allow AKS node to access K8s API server" "10.0.0.1"          "443"
+  create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 200 Allow Allow-Registry     "Allow local container registry"          "$registry_ip"      "443 5000"
+  create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 400 Deny  Deny-Internet      "Block all outbound internet access"
+
+  echo "[DEBUG] Overview firewall rules"
+  echo "[TRACE] az network nsg rule list --resource-group $node_resource_group --nsg-name $nsg_name --include-default --output table"
+  az network nsg rule list --resource-group "$node_resource_group" --nsg-name "$nsg_name" --include-default --output table
+
+}
+
+
+## NOTE: Original goal was to ensure no external images were pulled
+# Unfortunately this doesn't work reliably and therefore this has been commented out
+# The code (see functions above) have ben preserved for future reference.
+# TODO: Investigate further to get it working reliably!
+#configure_networking
+
+
+
+
+echo "[INFO ] reating baseline files for AKS Roles"
+kubectl get clusterrole -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "default-clusterroles.txt"
+kubectl get clusterrolebinding -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "default-clusterrolebindings.txt"
 
 
 

@@ -9,22 +9,164 @@ scriptpath="$(dirname "${BASH_SOURCE[0]}")"
 . "$scriptpath/utils.sh"
 
 
+function adjust_images_to_local_registry() {
+  echo "[TRCE] adjust_image_to_local_registry($*) - START"
+  local yaml_file=$1
+  local image_registries=${2:-$DOCKER_IMAGE_REGISTRY,$GHCR_IMAGE_REGISTRY,$QUAY_IMAGE_REGISTRY,$K8S_IMAGE_REGISTRY}
+  local local_registry="${3:-$LOCAL_IMAGE_REGISTRY_FQDN}"
+  local override_tag="${4:-}"
+
+  # validate whether yaml_file exists
+  assert test -f "$yaml_file"
+
+  if [[ -n "${local_registry:-}" ]];then
+    cp "$yaml_file" "${yaml_file}.bak"
+    echo "[DBUG] adjusting for '$image_registries':"
+    while [[ $image_registries ]]; do
+      image_registry=${image_registries%%,*}
+      echo "[DBUG]   ajdjusting images for registry '$image_registry' to '${local_registry}/${image_registry}'"
+      sed -i "s|${image_registry}/|${local_registry}/${image_registry}/|g" "$yaml_file"
+  
+      # Remove the first registry from the list
+      if [[ $image_registries == *,* ]]; then
+        image_registries=${image_registries#*,}
+      else
+        image_registries=""
+      fi
+      echo "[DBUG]   remaining registries: '$image_registries'"
+    done
+
+    # If an override tag is specified, replace all @sha256:... or :<tag> with :<override_tag>
+    if [[ -n "$override_tag" ]]; then
+      echo "[DBUG] overriding all digests and tags with ':$override_tag'"
+      # Replace @sha256:digest with :tag
+      sed -i -E "s|@sha256:[a-f0-9]+|:${override_tag}|g" "$yaml_file"
+      # Replace existing :tag (but not in ports like :8080)
+      sed -i -E "s|:([a-zA-Z0-9._-]+)|:${override_tag}|g" "$yaml_file"
+      # But avoid messing up ports like 8080:80
+      sed -i -E "s|([0-9]+):${override_tag}|\\1|g" "$yaml_file"
+    fi
+
+  fi
+}
+
+function kubectl_apply_locally() {
+  local yaml_url=${1}
+  local filename
+  filename=$(basename "$yaml_url")
+  local local_yaml=${2:-$tmp/$filename}
+
+  echo "[INFO] Downloading $filename from $yaml_url"
+  curl -sL -o "$local_yaml" "$yaml_url"
+
+  echo "[INFO] Adjusting image references in $filename (if applicable)"
+  adjust_images_to_local_registry "$local_yaml"
+
+  echo "[INFO] Applying $filename"
+  kubectl apply -f "$local_yaml"
+}
+
+
+function deploy_custom_cluster_builder() {
+  local clusterbuilder_name=${1:-$CLUSTERBUILDER_NAME}
+  local image_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
+
+  local paketo_registry=index.docker.io
+  if [[ -n "$image_registry" ]];then
+    paketo_registry="${image_registry}/${paketo_registry}"
+  fi
+
+  echo "[INFO ] Deploying custom ClusterBuilder (using only images from trusted registry)"
+
+## NOTE: Service account kpack-service-account will be created in namespace $ROOT_NAMESPACE (default:
+##       cf) in scope of the helm chart of korifi later in this script in.
+##       Make sure it's correctly referenced in ClusterStack ClusterStore CluisterBuilder
+
+  # TODO: Use vars for the images (also in install_local_image_registry.sh)
+  kubectl delete clusterstack base-stack >/dev/null 2>&1 || true
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStack
+metadata:
+  name: base-stack
+spec:
+  id: io.buildpacks.stacks.jammy
+  buildImage:
+    image: $paketo_registry/paketobuildpacks/build-jammy-full
+  runImage:
+    image: $paketo_registry/paketobuildpacks/run-jammy-full
+EOF
+
+  kubectl delete clusterstore base-store >/dev/null 2>&1 || true
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStore
+metadata:
+  name: base-store
+spec:
+  sources:
+    - image: "$paketo_registry/paketobuildpacks/go"
+    - image: "$paketo_registry/paketobuildpacks/java"
+    - image: "$paketo_registry/paketobuildpacks/nodejs"
+    - image: "$paketo_registry/paketobuildpacks/procfile"
+    - image: "$paketo_registry/paketobuildpacks/ruby"
+    # Add more as needed
+EOF
+
+  kubectl delete clusterbuilder "$clusterbuilder_name" >/dev/null 2>&1 || true
+  kubectl apply -f - <<EOF
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuilder
+metadata:
+  name: $clusterbuilder_name
+spec:
+  tag: $DOCKER_REGISTRY_BUILDER_REPOSITORY
+  serviceAccountRef:
+    name: kpack-service-account
+    namespace: $ROOT_NAMESPACE
+  stack:
+    name: base-stack
+    kind: ClusterStack
+  store:
+    name: base-store
+    kind: ClusterStore
+  order:
+    - group:
+        - id: paketo-buildpacks/go
+    - group:
+        - id: paketo-buildpacks/java
+    - group:
+        - id: paketo-buildpacks/nodejs
+    - group:
+        - id: paketo-buildpacks/procfile
+    - group:
+        - id: paketo-buildpacks/nodejs
+EOF
+
+}
+
 
 ## Install kpack
 function install_kpack() {
   local version=${1:-$KPACK_VERSION}
 
   local kpack_release_url="https://github.com/buildpacks-community/kpack/releases/download/v${version}/release-${version}.yaml"
-  
+  local local_kpack_file="$tmp/kpack_release-v${version}.yaml"
+
   # Note: Workaround for kpack installation
   #       kpack installation might fail because some CRD's are not installed in time
   #       By installing only the CRD parts of kpack first, this issue is bypassed
 
   echo "Installing kpack..."
 
+  curl -L -o "$local_kpack_file" "$kpack_release_url"
+  adjust_images_to_local_registry "$local_kpack_file" "" "" "$KPACK_VERSION"
+
   # Step 1: Apply only CRDs (initial apply to install CRDs)
-  echo "TRC: kubectl apply -f <(wget -qO- $kpack_release_url | yq e 'select(.kind == \"CustomResourceDefinition\")')"
-  kubectl apply -f <(wget -qO- "$kpack_release_url" | yq e 'select(.kind == "CustomResourceDefinition")')
+  echo "TRC: kubectl apply -f <(cat \"$local_kpack_file\" | yq e 'select(.kind == \"CustomResourceDefinition\")')"
+  # shellcheck disable=SC2002 # yq doesn't always work fine with yq ... file, hence the variant with cat: cat file | yq
+  kubectl apply -f <(cat "$local_kpack_file" | yq e 'select(.kind == "CustomResourceDefinition")')
+
 
   # Step 2: Wait for ClusterLifecycle CRD to become available
   echo "Waiting for ClusterLifecycle CRD to be registered..."
@@ -35,8 +177,11 @@ function install_kpack() {
   echo "ClusterLifecycle CRD is now available."
 
   # Step 3: Apply the release again to ensure all resources are created
-  echo "TRC: kubectl apply --filename \"$kpack_release_url\""
-  kubectl apply --filename "$kpack_release_url"
+  echo "TRC: kubectl apply --filename \"$local_kpack_file\""
+  kubectl apply --filename "$local_kpack_file"
+
+  # Step 3: Deploy custom ClusterStack, ClusterStore and ClusterBuilder
+  deploy_custom_cluster_builder "$CLUSTERBUILDER_NAME" "$LOCAL_IMAGE_REGISTRY_FQDN"
 
   # Step 4: Verify kpack
   echo "Waiting for kpack pods are running..."
@@ -44,6 +189,7 @@ function install_kpack() {
   echo "...done"
   echo ""
 }
+
 
 
 function create_k8s_user_cert() {
@@ -223,37 +369,108 @@ function add_to_etc_hosts() {
   local search_string="$2"
   local before_or_after="${3:-AFTER}"
 
-  echo "DBG: add_to-etc_hosts('$1', '$2', '$3') - START"
+  #echo "DBG: add_to-etc_hosts('$1', '$2', '$3') - START"
 
   if [[ -z "$search_string" ]]; then
     # add a new line with the given add_string at the end of the file
-    echo "DBG: Adding as new line"
-    echo "$add_string" | $SUDOCMD tee -a /etc/hosts > /dev/null
-
+    if ! grep "${add_string}" /etc/hosts >/dev/null; then
+      echo "DBG: Adding as new line"
+      # shellcheck disable=SC2090 # SUOCMD is a command and should NOT be quoted
+      echo "$add_string" | $SUDOCMD tee -a /etc/hosts > /dev/null
+    else
+      echo "DBG: Line already existing ($add_string)"
+    fi
   else
     # add the add_string to the line(s) where the search_string is found,
     # before or after the search_string
-    echo "DBG: relevant line in /etc/hosts:"
-    grep "${search_string}" /etc/hosts
-    echo "---"
+    #echo "DBG: relevant line in /etc/hosts:"
+    #grep "${search_string}" /etc/hosts
+    #echo "---"
     if ! grep "${add_string}" /etc/hosts >/dev/null; then
       echo "DBG: Adding '$add_string' to above mentioned line"
       case "${before_or_after^^}" in
         "BEFORE") 
 		echo "adding '$add_string' BEFORE '$search_string'"
+		# shellcheck disable=SC2090 # SUOCMD is a command and should NOT be quoted
 		$SUDOCMD sed -i "s/$search_string/$add_string $search_string/" /etc/hosts
 		;;
         "AFTER")
 		echo "adding '$add_string' AFTER '$search_string'"
+		# shellcheck disable=SC2090 # SUOCMD is a command and should NOT be quoted
 		$SUDOCMD sed -i "s/$search_string/$search_string $add_string/" /etc/hosts
 		;;
-	*) "DBG: Invalid direction '$before_or_after'. No changes made!"
+	*) "WARNING: Invalid direction '$before_or_after'. No changes made!"
       esac
     else
-      echo "DBG: string '$add_string' already present, no need to add"
+      echo "WARNING: string '$add_string' already present, no need to add"
     fi
-    echo "DBG: Result:"
-    grep "${search_string}" /etc/hosts
+    #echo "DBG: Result:"
+    #grep "${search_string}" /etc/hosts
     echo ""
   fi
+}
+
+
+function ensure_korifi_ready() {
+
+
+  ## Verifu Service Account and Registry Secret
+  echo "🔍 Verifying image-registry-credentials secret..."
+  kubectl get secret image-registry-credentials -n cf >/dev/null || {
+    echo "[TRACE] kubectl get secret image-registry-credentials -n cf"
+    echo "❌ Registry credentials not found in 'cf' namespace"
+    exit 1
+  }
+
+  echo "🔍 Verifying kpack-service-account uses the correct secret..."
+  kubectl get serviceaccount kpack-service-account -n "$ROOT_NAMESPACE" -o jsonpath='{.imagePullSecrets[*].name}' | grep -q image-registry-credentials || {
+    echo "[TRACE] kubectl get serviceaccount kpack-service-account -n $ROOT_NAMESPACE -o jsonpath='{.imagePullSecrets[*].name}' | grep -q image-registry-credentials"
+    echo "❌ kpack-service-account does not reference image-registry-credentials"
+    exit 1
+  }
+
+  ## Fprce ClusterBuilder Reconsiiation
+  echo "🔁 Forcing ClusterBuilder rebuild..."
+  kubectl annotate clusterbuilder "$CLUSTERBUILDER_NAME" "kpack.io/force-rebuild=$(date +%s)" --overwrite
+  
+  # Wait for it to become ready (use a loop with timeout)
+  echo "⏳ Waiting for ClusterBuilder to become Ready..."
+  for _ in {1..30}; do
+    READY=$(kubectl get clusterbuilder "$CLUSTERBUILDER_NAME" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+    [[ "$READY" == "True" ]] && break
+    sleep 5
+  done
+  
+  [[ "$READY" != "True" ]] && {
+    echo "[TRACE] kubectl get clusterbuilder $CLUSTERBUILDER_NAME -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}"
+    echo "❌ ClusterBuilder is not ready after timeout"
+    exit 1
+  }
+  echo "✅ ClusterBuilder is ready"
+
+  ## Validate Registry Reachability (optional)
+  if [[ -n "$LOCAL_IMAGE_REGISTRY_FQDN" ]]; then
+    echo "🌐 Testing access to internal registry..."
+    if ! curl -s --connect-timeout 5 "http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/" > /dev/null; then
+      echo "[TRACE] curl -s --connect-timeout 5 http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/"
+      echo "❌ Cannot reach internal image registry"
+      exit 1
+    fi
+  fi
+
+  ## Check BuildTemplates & ClusterStack Are Ready (optional)
+  echo "🔍 Checking ClusterStack is ready..."
+  if ! kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q True; then
+    echo "[TRACE] kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep True"
+    echo "❌ ClusterStack 'base-stack' is not ready"
+    exit 1
+  fi
+ 
+  echo "🔍 Checking ClusterStore is ready..."
+  if ! kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q True; then
+    echo "[TRACE] kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep True"
+    echo "❌ ClusterStore not ready"
+    exit 1
+  fi
+ 
 }

@@ -11,6 +11,7 @@ SUDOCMD=""	# default value
 # switch to sudo if not done yet
 #
 strongly_advice_root() {
+  local timeout=${1:-10}
 
   if [[ "$(id -u)" -eq 0 ]];then
     echo "Running as root, so all fine."
@@ -25,8 +26,8 @@ strongly_advice_root() {
   
     echo "Recommended is to run as root (sudo $). Running as non-root user like '$(whoami)' might cause issues."
     echo "Press enter to continue or CTRL-C to exit"
-    echo "Script will continue automatically in 10 seconds."
-    read -r -t 10
+    echo "Script will continue automatically in $timeout seconds."
+    read -r -t "$timeout"
   fi
 }
 
@@ -58,6 +59,24 @@ function trim() {
   echo "$var"
 }
 
+function get_version_levels() {
+  local version=$1
+  local levels=$2
+  local IFS='.'
+  read -ra parts <<< "$version"   # split version by '.'
+
+  # build output with requested levels, ignoring extra parts
+  local result=""
+  for ((i=0; i<levels && i<${#parts[@]}; i++)); do
+    if [[ $i -gt 0 ]]; then
+      result+="."
+    fi
+    result+="${parts[i]}"
+  done
+
+  echo "$result"
+}
+
 
 function assert() {
   bash -c "$*"
@@ -85,8 +104,10 @@ function validate_guid() {
 function validate_not_empty() {
   local value="$1"
   if [[ -n "$value" ]]; then
+    #echo "DBG: var is NOT empty"
     return 0
   else
+    #echo "DBG: var is empty"
     return 1
   fi
 }
@@ -100,35 +121,56 @@ function validate_dummy() {
 function prompt_if_missing() {
   #echo "DBG: prompt_if_missing( varname='$1', vartyp='${2^^}', prompt='$3', env_file='$4', validate_fn='$validate_fn') - START"
   local var_name="$1"
-  local var_type="${2^^:-VAR}"     #var, secret
+  local var_type="${2:-VAR}"     #var, secret
+  var_type=${var_type^^}
   local prompt_text="${3:-Enter value for variable $var_name}"
   local env_file="${4:-}"
-  local validate_fn=${5:-}
+  local validate_fn=${5:-validate_not_empty}
 
   local current_value="${!var_name}"
   local read_params=""
   if [[ "${var_type^^}" == "SECRET" ]]; then read_params="-s "; fi
 
   #echo "DBG: current value for var $var_name is '$current_value'."
-  while [ -z "$current_value" ] || { [ -n "$validate_fn" ] && ! $validate_fn "$current_value"; }; do
+  # Prompt once if value is missing
+  if [[ -z "$current_value" ]] || ! $validate_fn "$current_value"; then
     # shellcheck disable=SC2229,SC2086
     read -r $read_params -p "$prompt_text: " current_value
-  done
+    [[ "$var_type" == "SECRET" ]] && echo ""
 
-  if [[ "${var_type^^}" == "SECRET" ]]; then echo ""; fi	# add linefeed after secret input
+    # Validate if needed (loop until valid)
+    if ! $validate_fn "$current_value"; then
+      while ! $validate_fn "$current_value"; do
+        # shellcheck disable=SC2229,SC2086
+        read -r $read_params -p "$prompt_text: " current_value
+        if [[ "${var_type^^}" == "SECRET" ]]; then echo ""; fi	# add linefeed after secret input
+      done
+    fi
 
-  export "$var_name"="$current_value"
-
-  # Save to env-file
-  if [[ "${var_type^^}" != "SECRET" && -n "${env_file:-}" ]]; then
-    if grep -q "^export $var_name=" "$env_file" 2>/dev/null; then
-      sed -i "s|^export $var_name=.*|export $var_name=\"$current_value\"|" "$env_file"
-    else
-      echo "export $var_name=\"$current_value\"" >> "$env_file"
+    #echo "[DBUG] executing export $var_name=\"$current_value\""	# WARNING: this command shows also secrets on the output!
+    export var_name="$current_value"
+  
+    # Save to env-file
+    if [[ "${var_type^^}" != "SECRET" && -n "${env_file:-}" ]]; then
+       save_env_var "$var_name" "$current_value" "$env_file"
     fi
   fi
 }
 
+function save_env_var() {
+  local var_name=$1
+  local curr_val=$2
+  local env_file=$3
+
+  # Save to env-file
+  if grep -q "^export $var_name=" "$env_file" 2>/dev/null; then
+    echo "[DBUG] updating var '$var_name' to env file '$env_file'"
+    sed -i "s|^export $var_name=.*|export $var_name=\"$curr_val\"|" "$env_file"
+  else
+    echo "[DBUG] adding var '$var_name' to env file '$env_file'"
+    echo "export $var_name=\"$curr_val\"" >> "$env_file"
+  fi
+}
 
 function install_if_missing() {
   local installer tool package verify_cmd
@@ -244,6 +286,23 @@ function install_kind_if_missing() {
   echo ""
 }
 
+
+function install_pack_if_missing() {
+  local command="pack"
+  local version="$PACK_VERSION"
+  local url="https://github.com/buildpacks/pack/releases/download/v${version}/pack-v${version}-linux.tgz"
+  local bin_folder="/usr/local/bin"
+
+  if [[ -f "$bin_folder/$command" ]]; then
+    echo "✅ $command is already installed."
+    return 0
+  fi
+
+  echo "Installing $command ..."
+  curl -sL "$url" | tar -xzv
+  sudo mv pack /usr/local/bin
+  echo "...done"
+}
 
 
 function duration2sec() {

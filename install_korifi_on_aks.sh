@@ -215,7 +215,7 @@ function install_azure_kubernetes_cluster() {
 	location=\"$location\" \\
 	dnsPrefix=\"${aks_name}-dns\" \\
 	kubernetesVersion=\"$K8S_VERSION\" \\
-	nodeResourceGroup=\"${resource_group}_MC\" \\
+	nodeResourceGroup=\"${resource_group}_mc\" \\
 	authorizedIPRanges=\"[\\\"${my_ip}\\\"]\" \\
 	guidValue=\"$aks_guid\""
 
@@ -228,7 +228,7 @@ function install_azure_kubernetes_cluster() {
   	 location="$location" \
   	 dnsPrefix="${aks_name}-dns" \
   	 kubernetesVersion="$K8S_VERSION" \
-  	 nodeResourceGroup="${resource_group}_MC" \
+  	 nodeResourceGroup="${resource_group}_mc" \
   	 authorizedIPRanges="[\"${my_ip}\"]" \
   	 guidValue="$aks_guid" 
 
