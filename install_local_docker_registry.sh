@@ -82,11 +82,11 @@ function configure_nginx() {
   # server_names_hash_bucket_size
 
   # optain the required SSL certificate
-  echo -e "sudo certbot certonly \\ \n
-          --standalone \\ \n
-          --non-interactive \\ \n
-          --agree-tos \\ \n
-          --email dummy@example.com \\ \n
+  echo -e "sudo certbot certonly \\
+          --standalone \\
+          --non-interactive \\
+          --agree-tos \\
+          --email dummy@example.com \\
           -d ${LOCAL_IMAGE_REGISTRY_FQDN}"
   sudo certbot certonly \
           --standalone \
@@ -250,6 +250,7 @@ copy_image_to_local_registry index.docker.io/curlimages/curl:latest
 copy_image_to_local_registry index.docker.io/busybox:latest
 copy_image_to_local_registry index.docker.io/alpine:latest
 copy_image_to_local_registry index.docker.io/ubuntu:latest
+copy_image_to_local_registry index.docker.io/nginxinc/nginx-unprivileged
 
 
 #
