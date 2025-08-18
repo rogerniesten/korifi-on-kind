@@ -6,10 +6,8 @@
 ##
 
 ## Includes
-scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/cf_utils.sh"
-tmp="$scriptpath/tmp"
-mkdir -p "$tmp"
+. env/.env
+. "$LIB_PATH/cf_utils.sh"
 
 
 ##
@@ -19,7 +17,7 @@ prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 K8S_TYPE=${K8S_TYPE:-AKS}			# env requires this var, but this script doesn't, so any value is fine
 K8S_CLUSTER_KORIFI=${K8S_CLUSTER_KORIFI:-dummy}	# env requires this var, but this script doesn't, so any value is fine
-. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
 
 ##
@@ -96,6 +94,7 @@ function configure_nginx() {
           -d "${LOCAL_IMAGE_REGISTRY_FQDN}"
 
   # add nginx configfile for image registry in docker
+  echo -n "[TRACE] sudo tee /etc/nginx/sites-available/docker-registry > /dev/null <<EOF ..."
   sudo tee /etc/nginx/sites-available/docker-registry > /dev/null <<EOF
 server {
     listen 443 ssl;
@@ -129,6 +128,7 @@ server {
     }
 }
 EOF
+  echo "..done"
 
   # Enable the config
   if [[ ! -d /etc/nginx/sites-enabled/ ]]; then
@@ -142,10 +142,10 @@ EOF
 ##
 ## Install a local Docker Registry (and give it a name)
 ##
-local_registry_container=$($SUDOCMD docker ps -a --filter name=registry | grep registry)
-echo "[DEBUG] Found following registry container in docker:"
-echo $local_registry_container
+local_registry_container=$($SUDOCMD docker ps -a --filter name=registry --format '{{.Names}} {{.Status}}' | head -n1)
 
+echo "[DEBUG] Found following registry container in docker:"
+echo "${local_registry_container:-<none>}"
 
 if [[ -z "${local_registry_container:-}" ]]; then
   # start local registry container in Docker
@@ -157,6 +157,8 @@ elif [[ "$local_registry_container" != *"Up "* ]]; then
   echo $local_registry_container
   # now remove it
   $SUDOCMD docker restart registry
+else
+  echo "[INFO ] Registry container is already running"
 fi
 
 # Show result

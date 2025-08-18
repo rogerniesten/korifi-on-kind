@@ -122,6 +122,7 @@ function prompt_if_missing() {
   echo "[DEBUG] var_name='$var_name'"
   # bij set -u: indirecte expansie veilig maken (geen error als var unset is)
   local current_value="${!var_name-}"
+  echo "[DEBUG] curr_val='$current_value'"
   local read_params=""
   if [[ "${var_type^^}" == "SECRET" ]]; then read_params="-s "; fi
 
