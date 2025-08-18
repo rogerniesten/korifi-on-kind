@@ -4,25 +4,20 @@
 #
 
 ## Includes
-scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/cf_utils.sh"
-tmp="$scriptpath/tmp"
-mkdir -p "$tmp"
+scriptpath="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
+. "$scriptpath/../env/.env"
+. "$LIB_PATH/cf_utils.sh"
 
 
-##
-## Config
-##
 ##
 ## Config
 ##
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
-
 sync_k8s_user "$ADMIN_USERNAME"
 
 SERVICE_NAME=myservice
@@ -33,7 +28,7 @@ SERVICE_NAME=myservice
 ## Check prerequisits
 ##
 
-# Is KIND kluster running?
+# Is K8s cluster running?
 assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"
 
 # Is Korifi up and running?
@@ -62,9 +57,9 @@ fi
 #>echo " - remove servicebroker"
 #>cf delete-service-broker mybroker -f
 echo " - remove broker-service"
-kubectl delete -f "$scriptpath/broker-service.yaml" --ignore-not-found=true
+kubectl delete -f "$CFG_PATH/broker-service.yaml" --ignore-not-found=true
 echo " - remove broker-deployment"
-kubectl delete -f "$scriptpath/broker-deployment.yaml" --ignore-not-found=true
+kubectl delete -f "$CFG_PATH/broker-deployment.yaml" --ignore-not-found=true
 echo ""
 
 ## WORKAROUND
@@ -172,8 +167,8 @@ CONTAINER_NAME="my-service-broker"
 
 
 # deploy the service-broker to kubernetes
-kubectl apply -f "$scriptpath/broker-deployment.yaml"
-kubectl apply -f "$scriptpath/broker-service.yaml"
+kubectl apply -f "$CFG_PATH/broker-deployment.yaml"
+kubectl apply -f "$CFG_PATH/broker-service.yaml"
 
 # wait until the pods are running
 echo "Waiting for pod to be ready..."

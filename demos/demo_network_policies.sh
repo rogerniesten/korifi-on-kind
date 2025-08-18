@@ -5,12 +5,9 @@
 ##
 
 ## Includes
-scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/cf_utils.sh"
-
-tmp="$scriptpath/tmp"
-mkdir -p "$tmp"
-
+scriptpath="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
+. "$scriptpath/../env/.env"
+. "$LIB_PATH/cf_utils.sh"
 
 
 ##
@@ -18,7 +15,7 @@ mkdir -p "$tmp"
 ##
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -115,52 +112,49 @@ function get_guid() {
 
 
 function get_curl_tester_pod() {
-  local namespace="$1"
-  local found=false
+  local namespace="${1?Parameter 'namespace' is missing in call to function 'get_curl_tester_pod'}"
 
   if [[ -z "$namespace" ]]; then
     echo "Error: namespace is required." >&2
     return 1
   fi
 
-  kubectl get pod -n "$namespace" | grep Running | awk '{print $1}' | while read -r pod; do
+  while read -r pod; do
     if kubectl describe pod -n "$namespace" "$pod" | grep -q 'Image:.*curl'; then
       echo "$pod"
-      found=true
+      return 0
     fi
-  done
+  done < <(kubectl get pod -n "$namespace" | grep Running | awk '{print $1}')
 
   # If nothing found, print error and return non-zero
-  if [[ "$found" -ne "true" ]]; then
-    echo "Error: No Running pod in namespace '$namespace' has an Image containing 'curl'." >&2
-    return 1
-  fi
+  echo "Error: No Running pod in namespace '$namespace' has an Image containing 'curl'." >&2
+  return 1
 }
 
 
 function curl_in_k8s_pod_and_get_result() {
-  local url="$1"
+  local url="${1?Parameter 'url' is missing in call to function 'curl_in_k8s_pod_and_get_result'}"
   local info="${2:-}"
   local src_namespace="$3"
   local timeout="${4:-3}"
 
   local curl_pod
-  # cf target must already be set to required org and space
 
+  # cf target must already be set to required org and space
   # Let op: de test-app moet al gepusht zijn met cf push
+
   echo "[DEBUG] $info" 					>/dev/tty
 
   # find the curl-tester pod in the current namespace
   curl_pod=$(get_curl_tester_pod "$src_namespace")
 
   # exeute curl command in pod
-  echo "[TRACE] kubectl exec -n $src_namespace $curl_pod -- curl --max-time $timeout -s -o /dev/null -w \\\"%{http_code}\\\" $url\""	>/dev/tty
-  RAW_OUTPUT=$(kubectl exec -n $src_namespace $curl_pod -- curl --max-time "$timeout" -s -o /dev/null -w \"%{http_code}\" "$url" 2>/dev/null)
-  retval=$?
-  echo "[DEBUG] $RAW_OUTPUT"				>/dev/tty
-  if [[ "$retval" -eq "0" ]]; then
+  echo "[TRACE] kubectl exec -n $src_namespace $curl_pod -- curl --max-time $timeout -s -o /dev/null -w '%{http_code}' $url\""	>/dev/tty
+  if RAW_OUTPUT=$(kubectl exec -n "$src_namespace" "$curl_pod" -- curl --max-time "$timeout" -s -o /dev/null -w '%{http_code}' "$url" 2>/dev/null); then
+    retval=$?
     echo "SUCCESS ($RAW_OUTPUT)"
   else
+    retval=0
     echo "FAILED  ($RAW_OUTPUT)"
   fi
 
@@ -232,7 +226,7 @@ function test_connectivity_in_k8s() {
 
 
 function curl_in_runtask() {
-  local url="$1"
+  local url="${1?Parameter 'url' is missing in call to function 'curl_in_runtask'}"
   local info="${2:-}"
   local timeout="${3:-3}"
   local waittime="${4:-2}"
@@ -264,10 +258,10 @@ function curl_in_runtask() {
 
 
 function get_task_result() {
-  local src_org=$1
-  local src_space=$2
-  local tgt_org=$3
-  local tgt_space=$4
+  local src_org=${1?Parameter 'src_org' is missing in call to function 'get_task_result'}
+  local src_space=${2?Parameter 'src_space' is missing in call to function 'get_task_result'}
+  local tgt_org=${3?Parameter 'tgt_org' is missing in call to function 'get_task_result'}
+  local tgt_space=${4?Parameter 'tgt_space' is missing in call to function 'get_task_result'}
   local url=${5:-://}
 
   if [ "$BASH_SUBSHELL" -eq 0 ]; then
@@ -348,8 +342,7 @@ function test_connectivity_in_korifi() {
       cf target -o "$SRC_ORG" -s "$SRC_SPACE" >/dev/null
 
       TARGET_URL="https://google.com"
-      curl_in_runtask "https://google.com" "Testing connectifity from org '$SRC_ORG', space '$SRC_SPACE' to the internet"
-      if [[ "$?" -ne 0 ]]; then
+      if ! curl_in_runtask "https://google.com" "Testing connectifity from org '$SRC_ORG', space '$SRC_SPACE' to the internet"; then
         report_line="$SRC_ORG $SRC_SPACE $TGT_ORG $TGT_SPACE NOT_STARTED Could not start runtask for curl-tester"
 	continue
       fi
@@ -372,8 +365,7 @@ function test_connectivity_in_korifi() {
           TARGET_URL="http://${app_alias}.${space_guid}.svc.cluster.local"
 
           echo "🔍 $SRC_SPACE → $TGT_SPACE: "
-	  curl_in_runtask "$TARGET_URL" "Testing connectifity from org '$SRC_ORG', space '$SRC_SPACE' to $TARGET_URL"
-          if [[ "$?" -ne 0 ]]; then
+	  if ! curl_in_runtask "$TARGET_URL" "Testing connectifity from org '$SRC_ORG', space '$SRC_SPACE' to $TARGET_URL"; then
             report_line="$SRC_ORG $SRC_SPACE $TGT_ORG $TGT_SPACE NOT_STARTED Could not start runtask for curl-tester"
             continue
           fi

@@ -5,18 +5,16 @@
 ##
 
 ## Includes
-scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/cf_utils.sh"
-tmp="$scriptpath/tmp"
-mkdir -p "$tmp"
+. env/.env || { echo "Config ERROR! Script aborted"; exit 1; }                  # read paths from environment file
+. "$LIB_PATH/cf_utils.sh"
 
 
 ##
 ## Config
 ##
-export K8S_TYPE=KIND     					# type: KIND, AKS
+export K8S_TYPE=KIND                                                            # type: KIND, AKS
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. .env || { echo "Config ERROR! Script aborted"; exit 1; }	# read config from environment file
+. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }   # read korifi config from environment file
 
 strongly_advice_root
 
@@ -36,10 +34,9 @@ echo ""
 install_if_missing apt curl
 install_if_missing apt snap snapd
 install_if_missing snap kubectl kubectl
+install_if_missing snap go go "go version"
 install_if_missing apt docker docker.io "docker version"
 
-
-install_go_if_missing "${GO_VERSION}"
 install_kind_if_missing
 
 

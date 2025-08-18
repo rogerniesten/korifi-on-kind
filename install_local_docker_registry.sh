@@ -147,7 +147,7 @@ echo "[DEBUG] Found following registry container in docker:"
 echo $local_registry_container
 
 
-if [[ -z "$local_registry_container" ]]; then
+if [[ -z "${local_registry_container:-}" ]]; then
   # start local registry container in Docker
   echo "[INFO ] Start docker container 'registry'"
   $SUDOCMD docker run -d -p 5000:5000 --name registry registry:2

@@ -5,12 +5,9 @@
 ##
 
 ## Includes
-scriptpath="$(pwd dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/utils.sh"
-. "$scriptpath/cf_utils.sh"
-
-tmp="$scriptpath/tmp"
-mkdir -p "$tmp"
+scriptpath="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
+. "$scriptpath/../env/.env"
+. "$LIB_PATH/cf_utils.sh"
 
 
 ##
@@ -18,7 +15,7 @@ mkdir -p "$tmp"
 ##
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -37,8 +34,8 @@ assert helm version
 assert cf --version
 
 # Make sure kubenetes user and cf account are in sync
+switch_user "$ADMIN_USERNAME"
 sync_k8s_user "$ADMIN_USERNAME"
-
 
 # Is KIND kluster running?
 assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"
@@ -62,7 +59,7 @@ echo "...done"
 #fi
 
 # is repo sample-web-apps already cloned?
-if [[ ! -d "$scriptpath/../sample-web-apps" ]]; then
+if [[ ! -d "$REPO_PATH/../sample-web-apps" ]]; then
   echo "Repo sample-web-apps not cloned yet. Please run script ./demo_buildpacks.sh and try again"
 fi
 
@@ -71,7 +68,7 @@ fi
 ##
 ## Prepare java apps javaA (Hello Amsterdam) and javaN (Hello Nieuwegein)
 ##
-appsroot="${scriptpath}/../sample-web-apps"
+appsroot="${REPO_PATH}/../sample-web-apps"
 
 function create_app() {
   local appname=$1
@@ -112,7 +109,7 @@ create_app javaU Utrecht
 #	3) User roger will showcase that installing an app in org 'amsterdam' is not allowed
 #
 
-push_app_by_user_in_org() {
+function push_app_by_user_in_org() {
   local username=$1
   local org=$2
   local app_fldr=$3
@@ -136,7 +133,7 @@ push_app_by_user_in_org() {
 }
 
 
-check_app_by_user() {
+function check_app_by_user() {
   local username=$1
   local org=$2
   local apps_port="${3:-$CF_HTTPS_PORT}"
@@ -213,9 +210,10 @@ echo "===================================================="
 echo ""
 echo "This demo is supposed to fail!"
 echo ""
+set +e
 push_app_by_user_in_org "roger@${K8S_CLUSTER_KORIFI}" utrecht javaU
 check_app_by_user "roger@${K8S_CLUSTER_KORIFI}" utrecht
-
+set -e
 
 # Show apps per user
 echo ""
@@ -227,23 +225,30 @@ echo ""
 
 
 function show_all_apps() {
+
+  local orgs rv
+
   # Get list of orgs
-  orgs=$(cf orgs 2>/dev/null | tail -n +4)
+  orgs=$(cf orgs 2>/dev/null | tail -n +4 || true)
   
   for org in $orgs; do
     echo ""
     echo "🔹 Org: $org"
-    cf target -o "$org" >/dev/null 2>&1
+    if ! cf target -o "$org" >/dev/null 2>&1; then
+      continue
+    fi
  
     # Get list of spaces in this org
-    spaces=$(cf spaces 2>/dev/null | tail -n +4)
+    spaces=$(cf spaces 2>/dev/null | tail -n +4 || true)
  
     for space in $spaces; do
       echo "  🔸 Space: $space"
-      cf target -o "$org" -s "$space" >/dev/null 2>&1
+      if ! cf target -o "$org" -s "$space" >/dev/null 2>&1; then
+        continue
+      fi
  
       # List apps in this space
-      apps=$(cf apps 2>/dev/null | tail -n +4)
+      apps=$(cf apps 2>/dev/null | tail -n +4i || true)
 
      if [ -z "${apps:-}" ]; then
        echo "    (No apps found)"
@@ -279,27 +284,9 @@ show_all_apps
 # TODO:
 # - roger access app in nieuwegein when target is set to vijlen (result unknown yet)
 
+
 ## Switching back to admin 
 switch_user "${ADMIN_USERNAME}"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

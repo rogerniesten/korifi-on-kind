@@ -6,18 +6,16 @@
 ##
 
 ## Includes
-scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/cf_utils.sh"
-tmp="$scriptpath/tmp"
-mkdir -p "$tmp"
+. env/.env || { echo "Config ERROR! Script aborted"; exit 1; }      		# read paths from environment file
+. "$LIB_PATH/cf_utils.sh"
 
 
 ##
 ## Config
 ##
-export K8S_TYPE=AKS						# type: KIND, AKS
+export K8S_TYPE=AKS								# type: KIND, AKS
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. .env || { echo "Config ERROR! Script aborted"; exit 1; }	# read config from environment file
+. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }	# read korifi config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -39,6 +37,7 @@ echo ""
 install_if_missing apt jq jq "jq --version"
 install_if_missing apt curl 
 install_if_missing apt snap snapd
+install_if_missing snap go go "go version"
 install_if_missing snap kubectl kubectl
 
 # required for Azure CLI
@@ -47,7 +46,6 @@ install_if_missing apt package apt-transport-https
 install_if_missing apt package lsb-release
 install_if_missing apt package gnupg
 
-install_go_if_missing "${GO_VERSION}"
 
 ##
 ## Install Azure CLI
@@ -101,6 +99,7 @@ function show_instructions() {
   echo ""
 }
 
+
 function login_to_azure() {
    prompt_if_missing AZ_SUBSCRIPTION_ID "var"    "Enter Azure Subscription ID"          "$AZ_ENV_FILE" validate_guid
    prompt_if_missing AZ_APP_ID          "var"    "Enter Azure Service Principal App ID" "$AZ_ENV_FILE" validate_guid
@@ -116,14 +115,7 @@ function login_to_azure() {
    do
     # Attempt login using Service Principal
     echo "Attempt to login: az login --service-principal -u \"$AZ_APP_ID\" -p \"${AZ_CLIENT_SECRET:0:4}*******************\" --tenant \"$AZ_TENANT_ID\""
-    LOGIN_OUTPUT=$(az login --service-principal -u "$AZ_APP_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID" 2>&1)
-    LOGIN_SUCCESSFUL=$?
-
-    echo "LOGIN_OUTPUT: $LOGIN_OUTPUT"
-    echo "LOGIN_SUCCESSFUL: $LOGIN_SUCCESSFUL"
-
-    # Check if the login was successful
-    if [[ $LOGIN_SUCCESSFUL == 0 ]]; then
+    if az login --service-principal -u "$AZ_APP_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID" 2>&1; then
       echo "Service Principal login successful!"
       break  # Exit loop if login is successful
     fi
@@ -190,8 +182,8 @@ function install_azure_kubernetes_cluster() {
 
   # local vars
   local my_ip aks_guid
-  local aks_template="${scriptpath}/aks_deployment.json"
-  local aks_parameters="${scriptpath}/aks_parameters.json"
+  local aks_template="${CFG_PATH}/aks_deployment.json"
+  local aks_parameters="${CFG_PATH}/aks_parameters.json"
   my_ip=$(curl ifconfig.me)
   aks_guid=$(uuidgen)
 
@@ -218,20 +210,21 @@ function install_azure_kubernetes_cluster() {
 	authorizedIPRanges=\"[\\\"${my_ip}\\\"]\" \\
 	guidValue=\"$aks_guid\""
 
-  az deployment group create \
-    --resource-group "$resource_group" \
-    --template-file "$aks_template" \
-    --parameters @"$aks_parameters" \
-  	 resourceName="$aks_name" \
-  	 subscriptionId="$AZ_SUBSCRIPTION_ID" \
-  	 location="$location" \
-  	 dnsPrefix="${aks_name}-dns" \
-  	 kubernetesVersion="$K8S_VERSION" \
-  	 nodeResourceGroup="${resource_group}_mc" \
-  	 authorizedIPRanges="[\"${my_ip}\"]" \
-  	 guidValue="$aks_guid"
-  result=$?
-  if [[ "$result" -ne "0" ]]; then echo "Deployment of AKS cluster failed! Script aborted!"; exit 1; fi
+  if ! az deployment group create \
+          --resource-group "$resource_group" \
+          --template-file "$aks_template" \
+          --parameters @"$aks_parameters" \
+    	    resourceName="$aks_name" \
+  	    subscriptionId="$AZ_SUBSCRIPTION_ID" \
+  	    location="$location" \
+  	    dnsPrefix="${aks_name}-dns" \
+  	    kubernetesVersion="$K8S_VERSION" \
+  	    nodeResourceGroup="${resource_group}_mc" \
+  	    authorizedIPRanges="[\"${my_ip}\"]" \
+  	    guidValue="$aks_guid"; then
+    echo "Deployment of AKS cluster failed! Script aborted!"
+    exit 1
+  fi
 
   # Get credentials
   echo " - Get credentials"
@@ -282,16 +275,16 @@ function create_nsg_outbound_rule() {
     --protocol "$protocol" \
     --source-address-prefixes "$src_prefix" \
     --destination-address-prefixes "$dst_prefix" \
-    --destination-port-ranges $dst_ports \
+    --destination-port-ranges "$dst_ports" \
     --description "${desc}"
 }
 
 
 function configure_networking() {
   local node_resource_group="${K8S_CLUSTER_KORIFI}_mc"
-  local vnet_name nsg_id nsg_name registry_ip aks_controlplane_domain aks_controlplane_ip
+  local vnet_name nsg_id nsg_name registry_ip aks_controlplane_domain aks_ctrlplane_ip
   echo "[DEBUG] retrieving name of Network Security Group"
-  echo "[TRACE] vnet_name=\$(az network vnet list --resource-group "$node_resource_group" --query '[0].name' --output tsv)"
+  echo "[TRACE] vnet_name=\$(az network vnet list --resource-group $node_resource_group --query '[0].name' --output tsv)"
   vnet_name=$(az network vnet list --resource-group "$node_resource_group" --query '[0].name' --output tsv)
   echo "[TRACE] nsg_id=\$(az network vnet subnet list --resource-group $node_resource_group --vnet-name $vnet_name --query '[0].networkSecurityGroup.id' --output tsv)"
   nsg_id=$(az network vnet subnet list --resource-group "$node_resource_group" --vnet-name "$vnet_name" --query '[0].networkSecurityGroup.id' --output tsv)
@@ -306,7 +299,7 @@ function configure_networking() {
   echo "[TRACE] aks_controlplane_domain=\$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')"
   aks_controlplane_domain=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')
   echo "[TRACE] aks_controlplane_ip=\$(echo \"$aks_controlplane_domain\" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)"
-  aks_controlplane_ip=$(echo "$aks_controlplane_domain" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)
+  aks_ctrlplane_ip=$(echo "$aks_controlplane_domain" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)
 
   echo "[INFO ] Create network firewall rules"
   create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 140 Allow Allow-ControlPlane "Allow AKS node to access Controlplane"   "$aks_ctrlplane_ip" "443"
@@ -330,9 +323,9 @@ function configure_networking() {
 
 
 
-echo "[INFO ] reating baseline files for AKS Roles"
-kubectl get clusterrole -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "default-clusterroles.txt"
-kubectl get clusterrolebinding -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "default-clusterrolebindings.txt"
+echo "[INFO ] creating baseline files for AKS Roles"
+kubectl get clusterrole -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "${tmp:-.}/default-clusterroles.txt"
+kubectl get clusterrolebinding -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "${tmp:-.}/default-clusterrolebindings.txt"
 
 
 

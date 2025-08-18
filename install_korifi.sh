@@ -6,10 +6,9 @@
 ##
 
 ## Includes
-scriptpath="$(dirname "${BASH_SOURCE[0]}")"
-. "$scriptpath/cf_utils.sh"
-tmp="$scriptpath/tmp"
-mkdir -p "$tmp"
+. env/.env
+. "$LIB_PATH/cf_utils.sh"
+
 
 ##
 ## Config
@@ -17,10 +16,9 @@ mkdir -p "$tmp"
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 
-. .env || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
-export KORIFI_GATEWAY_NAMESPACE=korifi-gateway
-export KORIFI_GATEWAY_DEPLOYMENT=contour-korifi
+KORIFI_GATEWAY_NAMESPACE=korifi-gateway
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root 5
@@ -94,19 +92,10 @@ function install_cert_manager() {
   echo "Installing cert-manager..."
   kubectl_apply_locally "https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml"
 
-  # Wait until all cert-manager pods are ready
-  echo "Waiting for cert-manager pods to become ready..."
-  while true; do
-    # shellcheck disable=SC2126   # grep -c not possible here as param -v is not combineable with -c
-    NOT_READY=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | grep -v 'Running' | grep -v 'Completed' | wc -l)
-    TOTAL=$(kubectl get pods -n cert-manager --no-headers 2>/dev/null | wc -l)
-    if [[ "$TOTAL" -gt 0 && "$NOT_READY" -eq 0 ]]; then
-      echo "✅ All cert-manager pods are ready."
-      break
-    fi
-    echo "⏳ Still waiting... ($((TOTAL - NOT_READY))/$TOTAL ready)"
-    sleep 3
-  done
+  # Wait up to 5 minutes
+  kubectl wait --for=condition=ready pod -n cert-manager --all --timeout=300s
+
+  echo "✅ All cert-manager pods are ready."
   echo "...done"
   echo ""
 }
@@ -114,9 +103,7 @@ function install_cert_manager() {
 
 ## Install Metrics Server
 function install_metrics_server_if_missing() {
-  kubectl get pods -A | grep metrics-server 1>/dev/null
-  metrics_server_installed=$?
-  if [[ $metrics_server_installed -eq 0 ]]; then
+  if kubectl get pods -A 2>/dev/null | grep -q metrics-server; then
     # Metrics server is already installed implicitly on AKS
     echo "Metrics Server already installed, no action required"
   else
@@ -127,7 +114,7 @@ function install_metrics_server_if_missing() {
 }
 
 
-function patch_file() {
+function patch_contour_yaml_file() {
   #
   # This function patches a yaml file from the contour deployment to use images from the local registry
   #
@@ -137,23 +124,24 @@ function patch_file() {
   local ENVOY_IMAGE_REPO="${LOCAL_IMAGE_REGISTRY_FQDN}/${CONTOUR_ENVOY_IMAGE}"
   local ENVOY_SERVICE_TYPE="LoadBalancer"
 
+  echo "[DEBUG] Updating file '$file' to use local registry:"
+
   # Replace namespace
   echo "[TRACE]   sed -i \"s/namespace: projectcontour/namespace: ${namespace}/g\" $file"
-  sed -i "s/namespace: projectcontour/namespace: ${namespace}/g" "$file" || echo "found & updated"
-  test $? && echo "found & updated"
+  sed -i "s/namespace: projectcontour/namespace: ${namespace}/g" "$file" || echo "✅ found namespace key & updated to '${namespace}'"
 
   # Patch contour image
   echo "[TRACE]   sed -i \"s|image: ghcr.io/projectcontour/contour:.*|image: ${CONTOUR_IMAGE_REPO}|g\" $file"
-  sed -i "s|image: ghcr.io/projectcontour/contour:.*|image: ${CONTOUR_IMAGE_REPO}|g" "$file" || echo "found & updated"
+  sed -i "s|image: ghcr.io/projectcontour/contour:.*|image: ${CONTOUR_IMAGE_REPO}|g" "$file" || echo "✅ found contour image key(s) & updated to '${CONTOUR_IMAGE_REPO}'"
 
   # Patch envoy image
   echo "[TRACE]   sed -i \"s|image: docker.io/envoyproxy/envoy:.*|image: ${ENVOY_IMAGE_REPO}|g\" $file"
-  sed -i "s|image: docker.io/envoyproxy/envoy:.*|image: ${ENVOY_IMAGE_REPO}|g" "$file" || echo "found & updated"
+  sed -i "s|image: docker.io/envoyproxy/envoy:.*|image: ${ENVOY_IMAGE_REPO}|g" "$file" || echo "✅ found envoy image key(s) & updated to '${ENVOY_IMAGE_REPO}'"
 
   # Patch Envoy service type if set
   if [[ "$file" == *service-envoy.yaml* ]]; then
     echo "[TRACE]   sed -i \"s/type: ClusterIP/type: ${ENVOY_SERVICE_TYPE}/g\" $file"
-    sed -i "s/type: ClusterIP/type: ${ENVOY_SERVICE_TYPE}/g" "$file" || echo "found & updated"
+    sed -i "s/type: ClusterIP/type: ${ENVOY_SERVICE_TYPE}/g" "$file" || echo "✅ found type key & updated to '${ENVOY_SERVICE_TYPE}'"
   fi
 }
 
@@ -162,8 +150,8 @@ function create_cert_secrets_for_contour() {
   echo "[INFO] Create TLS certificates for contour"
   openssl req -x509 -nodes -days 365 \
     -newkey rsa:2048 \
-    -keyout "$tmp/tls.key" \
-    -out "$tmp/tls.crt" \
+    -keyout "${tmp:-.}/tls.key" \
+    -out "${tmp:-.}/tls.crt" \
     -subj "/CN=contour" \
     -addext "subjectAltName=DNS:contour"
 
@@ -174,18 +162,18 @@ function create_cert_secrets_for_contour() {
   echo "[INFO] Create TLS secret for contour"
   kubectl get secret contourcert --namespace "$namespace" >/dev/null 2>&1 && kubectl delete secret contourcert --namespace "$namespace"       # for idempotency
   kubectl create secret generic contourcert \
-   --from-file=ca.crt=$tmp/ca.crt \
-   --from-file=tls.crt=$tmp/tls.crt \
-   --from-file=tls.key=$tmp/tls.key \
-   -n korifi-gateway
+    --from-file=ca.crt=${tmp:-.}/ca.crt \
+    --from-file=tls.crt=${tmp:-.}/tls.crt \
+    --from-file=tls.key=${tmp:-.}/tls.key \
+    -n korifi-gateway
 
   # Create the envoycert secret
   echo "[INFO] Create TLS secret for envy"
   kubectl get secret envoycert --namespace "$namespace" >/dev/null 2>&1 && kubectl delete secret envoycert --namespace "$namespace"       # for idempotency
   kubectl create secret generic envoycert \
-    --from-file=ca.crt=$tmp/ca.crt \
-    --from-file=tls.crt=$tmp/tls.crt \
-    --from-file=tls.key=$tmp/tls.key \
+    --from-file=ca.crt=${tmp:-.}/ca.crt \
+    --from-file=tls.crt=${tmp:-.}/tls.crt \
+    --from-file=tls.key=${tmp:-.}/tls.key \
     -n korifi-gateway
 }
 
@@ -212,8 +200,8 @@ install_if_missing apt cf cf8-cli
 install_if_missing apt snap snapd
 install_if_missing snap yq yq "yq --version"
 install_if_missing snap kubectl snap 
+install_if_missing snap go go "go version"
 
-install_go_if_missing "${GO_VERSION}"
 install_pack_if_missing
 
 # Make sure kubenetes user and cf account are in sync
@@ -288,8 +276,7 @@ function install_contour_gateway_static() {
 ##
 
   local namespace="${1:-$KORIFI_GATEWAY_NAMESPACE}"
-  local image_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
-  local contour_version="${3:-$CONTOUR_VERSION}"
+  local contour_version="${2:-$CONTOUR_VERSION}"
 
   local USE_CONTOUR_CERT=false
 
@@ -307,11 +294,11 @@ function install_contour_gateway_static() {
   )
 
   # Images need to be pulled from the local registry, namespaces need to adjusted and envoy type should be Loadbalancer.
-  # This will be done for each yaml file in function 'patch_file'
+  # This will be done for each yaml file in function 'patch_contour_yaml_file'
   echo "[INFO ] Patching manifest files..."
   src_dir="$tmp/contour-${contour_version}/examples/contour"
   for file in "$src_dir"/*.yaml; do
-    patch_file "$file"
+     patch_contour_yaml_file "$file"
     cat $file | yq >/dev/null || exit 99
   done
 
@@ -406,7 +393,7 @@ function install_contour_gateway_dynamic() {
 
 
 case "$DEPLOY_TYPE_CONTOUR" in
-  "static")	install_contour_gateway_static "$KORIFI_GATEWAY_NAMESPACE" "$LOCAL_IMAGE_REGISTRY_FQDN" "$CONTOUR_VERSION";;
+  "static")	install_contour_gateway_static "$KORIFI_GATEWAY_NAMESPACE" "$CONTOUR_VERSION";;
   "dynamic")	install_contour_gateway_dynamic ""$CONTOUR_VERSION;;
   *)		echo "FAILURE: invalid deployment type '$DEPLOY_TYPE_CONTOUR' for Contour. Script aborted!";;
 esac
@@ -516,14 +503,14 @@ echo "[TRACE] helm upgrade --install korifi https://github.com/cloudfoundry/kori
 printf '    %s \\\n' "${params[@]}"
 echo "    --wait"
 
-helm upgrade --install korifi "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
+if ! helm upgrade --install korifi \
+    "https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz" \
     --namespace="$KORIFI_NAMESPACE" \
     "${params[@]}" \
-    --wait
-
-result=$?
-if [[ "$result" -ne "0" ]]; then echo "Helm deployment of Korifi cluster failed! Script aborted!"; exit 1; fi
-
+    --wait; then
+  echo "Helm deployment of Korifi cluster failed! Script aborted!"
+  exit 1
+fi
 
 # Wait for all pods in the korifi namespace to be ready
 kubectl wait --for=condition=Ready pods --all --namespace korifi --timeout=450s
