@@ -5,8 +5,14 @@ echo "[DEBUG] sourcing $(realpath "${BASH_SOURCE[0]}")"
 ## Library with several functions and utils
 ##
 
+######## INCLUDES ##########################################
+. "${LIB_PATH:-../env}/logging.sh"
+
+######## CONFIG ############################################
 SUDOCMD=""      # default value
 
+
+######## FUNCTIONS #########################################
 #
 # switch to sudo if not done yet
 #
