@@ -359,12 +359,12 @@ mktemp() {
 # 06-11-2023 | 337717 | R. Niesten | Don't fail if temp folder doesn't exist (anymore)
 #
 cleanup() {
-  log "$LOG_TRC" "cleanup temp-folder '$TMP_DIR':\n$(ls -la "$TMP_DIR" 2>/dev/null || echo "(empty folder)")"
+  log "$LOG_TR5" "cleanup temp-folder '$TMP_DIR':\n$(ls -la "$TMP_DIR" 2>/dev/null || echo "(empty folder)")"
   if [[ -d "$TMP_DIR" ]]; then
     rm -R "$TMP_DIR"
-    log "$LOG_TRC" "temp-folder '$TMP_DIR' is removed."
+    log "$LOG_TR5" "temp-folder '$TMP_DIR' is removed."
   else
-    log "$LOG_TRC" "temp-folder '$TMP_DIR' doesn't exist anymore, nothing to cleanup."
+    log "$LOG_TR5" "temp-folder '$TMP_DIR' doesn't exist anymore, nothing to cleanup."
   fi
 }
 
