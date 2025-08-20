@@ -6,16 +6,23 @@
 ##
 
 ## Includes
-. env/.env || { echo "Config ERROR! Script aborted"; exit 1; }      		# read paths from environment file
+. env/.env || { echo "Config ERROR! Script aborted"; exit 1; }  	# read paths from environment file
 . "$LIB_PATH/cf_utils.sh"
 
 
 ##
 ## Config
 ##
-export K8S_TYPE=AKS								# type: KIND, AKS
+
+# logging
+export log_level="$LOG_TRC"
+export show_timestamp=false
+export log_commands_always=true
+
+# korifi
+K8S_TYPE=AKS								# type: KIND, AKS
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }	# read korifi config from environment file
+. "$ENV_PATH/.env.korifi" || die 1 "Config ERROR! Script aborted"	# read korifi config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -25,12 +32,11 @@ strongly_advice_root
 ## Installing required tools
 ##
 
-echo ""
-echo ""
-echo "---------------------------------------"
-echo "Installing required tools"
-echo "---------------------------------------"
-echo ""
+log "$LOG_INF" "
+---------------------------------------
+Installing required tools
+---------------------------------------
+"
 
 ## GPG keys and repo sources are added in .env
 
@@ -52,23 +58,23 @@ install_if_missing apt package gnupg
 ##
 function install_azure_cli() {
 
-  echo "Install Azure CLI..."
+  log "$LOG_INF" "Install Azure CLI..."
 
   # Download and install the Microsoft signing key
-  echo " - Download and install Microsoft signing key"
+  log "$LOG_TRC" " - Download and install Microsoft signing key"
   curl -sL https://packages.microsoft.com/keys/microsoft.asc | \
     gpg --dearmor | \
     $SUDOCMD tee /etc/apt/trusted.gpg.d/microsoft.gpg > /dev/null
 
   # Add the Azure CLI software repository
-  echo " - Add Azure CLI software repo"
+  log "$LOG_TRC" " - Add Azure CLI software repo"
   AZ_REPO=$(lsb_release -cs)
   echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $AZ_REPO main" | \
     $SUDOCMD tee /etc/apt/sources.list.d/azure-cli.list
 
   install_if_missing apt az azure-cli "az version"
 
-  echo "...done"
+  log "$LOG_INF" "...done"
 }
 
 # TODO: Enable this command as soon as the AKS will be deployed in Azure in scope of this script
@@ -114,17 +120,18 @@ function login_to_azure() {
    until [ $ATTEMPT -gt $MAX_ATTEMPTS ]
    do
     # Attempt login using Service Principal
-    echo "Attempt to login: az login --service-principal -u \"$AZ_APP_ID\" -p \"${AZ_CLIENT_SECRET:0:4}*******************\" --tenant \"$AZ_TENANT_ID\""
+    log "$LOG_DBG" "Attempt to login to azure"
+    log "$LOG_CMD" "az login --service-principal -u \"$AZ_APP_ID\" -p \"${AZ_CLIENT_SECRET:0:4}*******************\" --tenant \"$AZ_TENANT_ID\""
     if az login --service-principal -u "$AZ_APP_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID" 2>&1; then
-      echo "Service Principal login successful!"
+      log "$LOG_TRC" "Service Principal login successful!"
       break  # Exit loop if login is successful
     fi
 
-    echo "Login attempt $ATTEMPT failed! Details: $LOGIN_OUTPUT"
+    log "$LOG_WRN" "Login attempt $ATTEMPT failed! Details: $LOGIN_OUTPUT"
     show_instructions
 
     # Ask the user to press Enter to retry or CTRL+C to abort
-    echo "After creation provide the credentials of the Service Principal or press CTRL_C to abort"
+    echo "After creation, provide the credentials of the Service Principal or press CTRL_C to abort"
     read -rp  "App-ID:        " AZ_APP_ID
     read -srp "Client Secret: " AZ_CLIENT_SECRET
     echo ""     # to force newline
@@ -140,33 +147,29 @@ function login_to_azure() {
 
   # If login was not successful after max attempts, exit with error
   if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
-    echo "Failed to login after $MAX_ATTEMPTS attempts."
-    exit 1
+    die 1 "Failed to login after $MAX_ATTEMPTS attempts."
   fi
 }
 
 
 if az account show > /dev/null 2>&1 ; then
-  echo "Already logged in to Azure."
+  log "$LOG_DBG" "Already logged in to Azure."
 else
-  echo "Not logged in to Azure yet, let's login now."
+  log "$LOG_WRN" "Not logged in to Azure yet, let's login now."
   login_to_azure
 fi
 
 
-echo ""
-echo "Azure Data"
-echo "=========="
-echo "SubscriptionID:	$AZ_SUBSCRIPTION_ID"
-echo "Service Principal:"
-echo "- App-ID:         $AZ_APP_ID"
-echo "- Client Secret:  ${AZ_CLIENT_SECRET:0-4}..."
-echo "- Tenant ID:      $AZ_TENANT_ID"
-echo ""
-echo "Now we can continue with the creation of the AKS cluster."
-echo ""
-
-
+log "$LOG_DBG" "
+Azure Data
+==========
+SubscriptionID:	$AZ_SUBSCRIPTION_ID
+Service Principal:
+- App-ID:         $AZ_APP_ID
+- Client Secret:  ${AZ_CLIENT_SECRET:0-4}...
+- Tenant ID:      $AZ_TENANT_ID
+"
+log "$LOG_INF" "Now we can continue with the creation of the AKS cluster.\n"
 
 
 ##
@@ -187,17 +190,17 @@ function install_azure_kubernetes_cluster() {
   my_ip=$(curl ifconfig.me)
   aks_guid=$(uuidgen)
 
-  echo "Deploy Azure Kubernetes Service Cluster '$aks_name' ($(date))"
+  log "$LOG_INF" "Deploy Azure Kubernetes Service Cluster '$aks_name' ($(date))"
 
   # Create the resource group
-  echo "- create resource group '$resource_group'"
+  log "$LOG_DBG" "- create resource group '$resource_group'"
   #echo "  DBG: az group create --name \"$resource_group\" --location \"$location\""
   az group create --name "${resource_group}"    --location "$location"	# Cluster
-  echo ""
+  
 
   # Deploy the AKS cluster
-  echo " - deploy Azure Kubernetes Service Cluster '$aks_name'"
-  echo "   az deployment group create \\
+  log "$LOG_DBG" " - deploy Azure Kubernetes Service Cluster '$aks_name'"
+  log "$LOG_CMD" "   az deployment group create \\
     --resource-group \"$resource_group\" \\
     --template-file \"$aks_template\" \\
     --parameters @\"$aks_parameters\" \\
@@ -222,16 +225,15 @@ function install_azure_kubernetes_cluster() {
   	    nodeResourceGroup="${resource_group}_mc" \
   	    authorizedIPRanges="[\"${my_ip}\"]" \
   	    guidValue="$aks_guid"; then
-    echo "Deployment of AKS cluster failed! Script aborted!"
-    exit 1
+    die 1 "Deployment of AKS cluster failed! Script aborted!"
   fi
 
   # Get credentials
-  echo " - Get credentials"
+  log "$LOG_DBG" " - Get credentials"
   az aks get-credentials --resource-group "$resource_group" --name "$aks_name" --overwrite-existing
 
   # Wait for node readiness
-  echo " - Waiting for node readiness"
+  log "$LOG_DBG" " - Waiting for node readiness"
   kubectl wait --for=condition=Ready nodes --all --timeout=300s
 }
 
@@ -252,7 +254,7 @@ function create_nsg_outbound_rule() {
   local protocol="${9:-*}"
   local src_prefix="${10-VirtualNetwork}"
 
-  echo "[TRACE] az network nsg rule create \\
+  log "$LOG_CMD" "az network nsg rule create \\
     --resource-group $node_resource_group \\
     --nsg-name $nsg_name \\
     --name $name \\
@@ -283,32 +285,32 @@ function create_nsg_outbound_rule() {
 function configure_networking() {
   local node_resource_group="${K8S_CLUSTER_KORIFI}_mc"
   local vnet_name nsg_id nsg_name registry_ip aks_controlplane_domain aks_ctrlplane_ip
-  echo "[DEBUG] retrieving name of Network Security Group"
-  echo "[TRACE] vnet_name=\$(az network vnet list --resource-group $node_resource_group --query '[0].name' --output tsv)"
+  log "$LOG_DBG" "retrieving name of Network Security Group"
+  log "$LOG_CMD" "vnet_name=\$(az network vnet list --resource-group $node_resource_group --query '[0].name' --output tsv)"
   vnet_name=$(az network vnet list --resource-group "$node_resource_group" --query '[0].name' --output tsv)
-  echo "[TRACE] nsg_id=\$(az network vnet subnet list --resource-group $node_resource_group --vnet-name $vnet_name --query '[0].networkSecurityGroup.id' --output tsv)"
+  log "$LOG_CMD" "nsg_id=\$(az network vnet subnet list --resource-group $node_resource_group --vnet-name $vnet_name --query '[0].networkSecurityGroup.id' --output tsv)"
   nsg_id=$(az network vnet subnet list --resource-group "$node_resource_group" --vnet-name "$vnet_name" --query '[0].networkSecurityGroup.id' --output tsv)
-  echo "[TRACE] nsg_name=\$(az network nsg list --resource-group $node_resource_group --query \"[?id=='$nsg_id']\".name --output tsv)"
+  log "$LOG_CMD" "nsg_name=\$(az network nsg list --resource-group $node_resource_group --query \"[?id=='$nsg_id']\".name --output tsv)"
   nsg_name=$(az network nsg list --resource-group "$node_resource_group" --query "[?id=='$nsg_id']".name --output tsv)
 
-  echo "[DEBUG] get image registry IP"
-  echo "[TRACE] registry_ip=\$(dig +short $LOCAL_IMAGE_REGISTRY_FQDN)"
+  log "$LOG_DBG" "get image registry IP"
+  log "$LOG_CMD" "registry_ip=\$(dig +short $LOCAL_IMAGE_REGISTRY_FQDN)"
   registry_ip=$(dig +short "$LOCAL_IMAGE_REGISTRY_FQDN")
   
-  echo "[DEBUG] get controlplan IP"
-  echo "[TRACE] aks_controlplane_domain=\$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')"
+  log "$LOG_DBG" "get controlplan IP"
+  log "$LOG_CMD" "aks_controlplane_domain=\$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')"
   aks_controlplane_domain=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's|https?://([^:/]+).*|\1|')
-  echo "[TRACE] aks_controlplane_ip=\$(echo \"$aks_controlplane_domain\" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)"
+  log "$LOG_CMD" "aks_controlplane_ip=\$(echo \"$aks_controlplane_domain\" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)"
   aks_ctrlplane_ip=$(echo "$aks_controlplane_domain" | sed -E 's|https?://([^:/]+).*|\1|' | xargs dig +short)
 
-  echo "[INFO ] Create network firewall rules"
+  log "$LOG_DBG" "Create network firewall rules"
   create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 140 Allow Allow-ControlPlane "Allow AKS node to access Controlplane"   "$aks_ctrlplane_ip" "443"
   create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 150 Allow Allow-K8s-API      "Allow AKS node to access K8s API server" "10.0.0.1"          "443"
   create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 200 Allow Allow-Registry     "Allow local container registry"          "$registry_ip"      "443 5000"
   create_nsg_outbound_rule "$node_resource_group" "$nsg_name" 400 Deny  Deny-Internet      "Block all outbound internet access"
 
-  echo "[DEBUG] Overview firewall rules"
-  echo "[TRACE] az network nsg rule list --resource-group $node_resource_group --nsg-name $nsg_name --include-default --output table"
+  log "$LOG_DBG" "Overview firewall rules"
+  log "$LOG_CMD" "az network nsg rule list --resource-group $node_resource_group --nsg-name $nsg_name --include-default --output table"
   az network nsg rule list --resource-group "$node_resource_group" --nsg-name "$nsg_name" --include-default --output table
 
 }
@@ -323,20 +325,20 @@ function configure_networking() {
 
 
 
-echo "[INFO ] creating baseline files for AKS Roles"
+log "$LOG_INF" "creating baseline files for AKS Roles"
 kubectl get clusterrole -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "${tmp:-.}/default-clusterroles.txt"
 kubectl get clusterrolebinding -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "${tmp:-.}/default-clusterrolebindings.txt"
 
 
 
 
-echo ""
-echo "------------------------------------------------------"
-echo "Azure Kubernetes Service Cluster installation finished"
-echo "------------------------------------------------------"
-echo "Info:"
-echo " - K8S Cluster:	$K8S_CLUSTER_KORIFI"
-echo " - K8S Domain:	$(az aks list | jq -r ".[] | select(.name == \"$K8S_CLUSTER_KORIFI\") | .azurePortalFqdn")"
-echo "------------------------------------------------------"
-echo ""
+log "$LOG_INF" "
+------------------------------------------------------
+Azure Kubernetes Service Cluster installation finished
+------------------------------------------------------
+Info:
+ - K8S Cluster:	$K8S_CLUSTER_KORIFI
+ - K8S Domain:	$(az aks list | jq -r ".[] | select(.name == \"$K8S_CLUSTER_KORIFI\") | .azurePortalFqdn")
+------------------------------------------------------
+"
 
