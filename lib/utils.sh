@@ -20,20 +20,20 @@ strongly_advice_root() {
   local timeout=${1:-5}
 
   if [[ "$(id -u)" -eq 0 ]];then
-    echo "Running as root, so all fine."
+    log "$LOG_DBG" "Running as root, so all fine."
     export SUDOCMD=""
   else
     # let's check whether user can sudo (and cache the password for further sudo commands in the script)
     echo "Enter sudo password to check sudo permissions"
     sudo echo "sudo ok"
-    echo "Running as '$(whoami)', but capable of sudo to root"
+    log "$LOG_DBG" "Running as '$(whoami)', but capable of sudo to root"
     # shellcheck disable=SC2016,SC2089  # this is meant to be litterall!
     export SUDOCMD='sudo env "PATH=$PATH"'
 
-    echo "Recommended is to run as root (sudo $(basename "$0"))."
+    log "$LOG_INF" "Recommended is to run as root (sudo $(basename "$0"))."
     # bij set -e: timeout van read -t geeft exitcode 1 → altijd afvangen met `|| true`
     read -r -t "$timeout" -p "Press enter to continue or Ctrl+C to abort (script will automatically continue in $timeout seconds) ... " <> /dev/tty || true
-    echo "Continuing..."
+    log "$LOG_INF" "Continuing..."
   fi
 }
 
@@ -80,22 +80,21 @@ function get_version_levels() {
 }
 
 function assert() {
-  echo "asserting command: '$*'"
+  log "$LOG_DBG" "asserting command: '$*'"
   bash -c "$*" || {
     local result=$?
-    echo "Command '$*' FAILED!"
-    exit $result
+    die $result "$LOG_ERR" "Command '$*' FAILED!"
   }
-  echo "Command '$*' succeeded"
+  log "$LOG_DBG" "Command '$*' succeeded"
 }
 
 function validate_guid() {
   local guid=${1?Parameter 'guid' is missing in call to function 'validate_guid'}
   if [[ "$guid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]]; then
-    #echo "DBG: '$guid' valid GUID"
+    log "$LOG_TRC" "'$guid' is valid GUID"
     return 0
   else
-    #echo "DBG: '$guid' is invalid GUID"
+    log "$LOG_WRN" "'$guid' is invalid GUID"
     return 1
   fi
 }
@@ -117,7 +116,7 @@ function validate_dummy() {
 }
 
 function prompt_if_missing() {
-  echo "DBG: prompt_if_missing( varname='$1', vartyp='${2:-}', prompt='${3:-}', env_file='${4:-}', validate_fn='${5:-}') - START"
+  log "$LOG_DBG" "prompt_if_missing( varname='$1', vartyp='${2:-}', prompt='${3:-}', env_file='${4:-}', validate_fn='${5:-}') - START"
   local var_name="${1?Parameter 'var_name' is missing in call to function 'prompt_if_missing'}"
   local var_type="${2:-VAR}"     #var, secret
   var_type=${var_type^^}
@@ -125,14 +124,13 @@ function prompt_if_missing() {
   local env_file="${4:-}"
   local validate_fn=${5:-validate_not_empty}
 
-  echo "[DEBUG] var_name='$var_name'"
+  log "$LOG_TRC" "var_name='$var_name'"
   # bij set -u: indirecte expansie veilig maken (geen error als var unset is)
   local current_value="${!var_name-}"
-  echo "[DEBUG] curr_val='$current_value'"
+  log "$LOG_TRC" "curr_val='$current_value'"
   local read_params=""
   if [[ "${var_type^^}" == "SECRET" ]]; then read_params="-s "; fi
 
-  #echo "DBG: current value for var $var_name is '$current_value'."
   # Prompt once if value is missing
   if [[ -z "$current_value" ]] || ! $validate_fn "$current_value"; then
     # shellcheck disable=SC2229,SC2086
@@ -148,7 +146,7 @@ function prompt_if_missing() {
       done
     fi
 
-    echo "[DBUG] executing export $var_name=\"$current_value\"" # WARNING: this command shows also secrets on the output!
+    #log "$LOG_CMD" "export $var_name=\"$current_value\"" # WARNING: this command shows also secrets on the output!
     # bij set -u veilig exporteren met quotes
     export "$var_name=$current_value"
 
@@ -157,7 +155,7 @@ function prompt_if_missing() {
        save_env_var "$var_name" "$current_value" "$env_file"
     fi
   fi
-  echo "[DEBUG] prompt_if_missing() - FINISHED"
+  log "$LOG_TRC" "prompt_if_missing() - FINISHED"
 }
 
 function save_env_var() {
@@ -167,10 +165,10 @@ function save_env_var() {
 
   # Save to env-file
   if grep -q "^export $var_name=" "$env_file" 2>/dev/null; then
-    echo "[DBUG] updating var '$var_name' to env file '$env_file'"
+    log "$LOG_TRC" "updating var '$var_name' to env file '$env_file'"
     sed -i "s|^export $var_name=.*|export $var_name=\"$curr_val\"|" "$env_file"
   else
-    echo "[DBUG] adding var '$var_name' to env file '$env_file'"
+    log "$LOG_TRC" "adding var '$var_name' to env file '$env_file'"
     echo "export $var_name=\"$curr_val\"" >> "$env_file"
   fi
 }
@@ -203,11 +201,11 @@ function install_if_missing() {
   fi
 
   if $installed; then
-    echo "✅ $tool ($package) is already installed."
+    log "$LOG_DBG" "✅ $tool ($package) is already installed."
     return 0
   fi
 
-  echo "🔍 $tool ($tool) not found. Attempting to install ${package}..."
+  log "$LOG_INF" "🔍 $tool ($tool) not found. Attempting to install ${package}..."
 
   case "$installer" in
     apt)        sudo apt update && sudo apt install -y "$package" ;;
@@ -231,23 +229,22 @@ function install_if_missing() {
                 elif command -v brew >/dev/null 2>&1; then
                   brew install "$package"
                 else
-                  echo "❌ Could not find a supported package manager to install $tool."
-                  return 1
+                  die 1 "❌ Could not find a supported package manager to install $tool."
                 fi
                 ;;
-      *)        echo "❌ Unsupported installer: $installer"; return 1 ;;
+      *)        die 1 "❌ Unsupported installer: $installer"  ;;
   esac
 
   if [[ -n "$verify_cmd" ]]; then
-    echo "Verify ($verify_cmd):"
+    log "$LOG_DBG" "Verify ($verify_cmd):"
     assert "$verify_cmd"
   fi
 
   if command -v "$tool" >/dev/null 2>&1; then
-    echo "✅ Successfully installed $tool."
+    log "$LOG_INF" "✅ Successfully installed $tool."
     return 0
   else
-    echo "❌ Failed to install $tool."
+    log "$LOG_ERR" "❌ Failed to install $tool."
     return 1
   fi
 }
@@ -255,19 +252,19 @@ function install_if_missing() {
 function install_kind_if_missing() {
 
   if [[ -f "/usr/local/bin/kind" ]]; then
-    echo "✅ kind (Kubernetes in Docker) is already installed."
+    log "$LOG_DBG" "✅ kind (Kubernetes in Docker) is already installed."
     return 0
   fi
 
   ## Install KinD
   # For AMD64 / x86_64
-  echo "Installing kind (Kubernetes in Docker)..."
+  log "$LOG_INF" "Installing kind (Kubernetes in Docker)..."
   [ "$(uname -m)" = "x86_64" ] && curl -sLo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
   chmod +x ./kind
   sudo mv ./kind /usr/local/bin/kind
-  echo "...done"
-  echo ""
+  log "$LOG_INF" "...done\n"
 }
+
 
 function install_pack_if_missing() {
   local command="pack"
@@ -276,14 +273,14 @@ function install_pack_if_missing() {
   local bin_folder="/usr/local/bin"
 
   if [[ -f "$bin_folder/$command" ]]; then
-    echo "✅ $command is already installed."
+    log "$LOG_DBG" "✅ $command is already installed."
     return 0
   fi
 
-  echo "Installing $command ..."
+  log "$LOG_INF" "Installing $command ..."
   curl -sL "$url" | tar -xzv
   sudo mv pack /usr/local/bin
-  echo "...done"
+  log "$LOG_INF" "...done"
 }
 
 function duration2sec() {
@@ -308,18 +305,14 @@ function duration2sec() {
       w)   (( total += number * 604800 )) ;;
       ms)  (( total += number / 1000 )) ;;
       us)  (( total += number / 1000000 )) ;;
-      *)
-          echo "Error: unknown or invalid unit '$unit'" >&2
-          return 1
-          ;;
+      *)   die 1 "Error: unknown or invalid unit '$unit'" ;;
     esac
 
     rest="${rest#"$matched"}"
   done
 
   if [[ -n $rest ]]; then
-    echo "Error: leftover unparsed input: '$rest'" >&2
-    return 1
+    die 1 "Error: leftover unparsed input: '$rest'"
   fi
 
   echo "$total"

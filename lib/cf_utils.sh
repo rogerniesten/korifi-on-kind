@@ -8,8 +8,7 @@ set -euo pipefail
 ## Includes
 LIB_PATH=${LIB_PATH:-.}
 if [[ ! -f "$LIB_PATH/utils.sh" ]]; then
-  echo "[FATAL] Can't load $LIB_PATH/utils.sh! Script aborted"
-  exit 99
+  die 99 "[FATAL] Can't load $LIB_PATH/utils.sh! Script aborted"
 fi
 . "$LIB_PATH/utils.sh"
 
@@ -17,7 +16,7 @@ fi
 ## Library Functions ########
 
 function adjust_images_to_local_registry() {
-  echo "[TRCE] adjust_images_to_local_registry($*) - START"
+  log "$LOG_TRC" "adjust_images_to_local_registry($*) - START"
   local yaml_file=${1?Parameter 'yaml_file' is missing in call to function 'adjust_images_to_local_registry'}
   local image_registries=${2:-$DOCKER_IMAGE_REGISTRY,$GHCR_IMAGE_REGISTRY,$QUAY_IMAGE_REGISTRY,$K8S_IMAGE_REGISTRY}
   local local_registry="${3:-${LOCAL_IMAGE_REGISTRY_FQDN:-}}"
@@ -28,16 +27,16 @@ function adjust_images_to_local_registry() {
 
   if [[ -n "$local_registry" ]]; then
     cp "$yaml_file" "${yaml_file}.bak"
-    echo "[DBUG] adjusting for '$image_registries':"
+    log "$LOG_TRC" "  adjusting for '$image_registries':"
 
     IFS=',' read -ra registries <<< "$image_registries"
     for image_registry in "${registries[@]}"; do
-      echo "[DBUG]   adjusting images for registry '$image_registry' to '${local_registry}/${image_registry}'"
+      log "$LOG_TRC" "  adjusting images for registry '$image_registry' to '${local_registry}/${image_registry}'"
       sed -i "s|${image_registry}/|${local_registry}/${image_registry}/|g" "$yaml_file"
     done
 
     if [[ -n "$override_tag" ]]; then						# If an override tag is specified, replace all @sha256:... or :<tag> with :<override_tag>
-      echo "[DBUG] overriding all digests and tags with ':$override_tag'"	# Replace @sha256:digest with :tag
+      log "$LOG_TRC" "overriding all digests and tags with ':$override_tag'"	# Replace @sha256:digest with :tag
       sed -i -E "s|@sha256:[a-f0-9]+|:${override_tag}|g" "$yaml_file"		# Replace existing :tag (but not in ports like :8080)
       sed -i -E "s|:([a-zA-Z0-9._-]+)|:${override_tag}|g" "$yaml_file"		# But avoid messing up ports like 8080:80
     fi
@@ -51,27 +50,27 @@ function kubectl_apply_locally() {
   filename=$(basename "$yaml_url")
   local local_yaml=${2:-$tmp/$filename}
 
-  echo "[INFO] Downloading $filename from $yaml_url"
+  log "$LOG_INF" "Downloading $filename from $yaml_url"
   curl -sL -o "$local_yaml" "$yaml_url"
 
-  echo "[INFO] Adjusting image references in $filename (if applicable)"
+  log "$LOG_INF" "Adjusting image references in $filename (if applicable)"
   adjust_images_to_local_registry "$local_yaml"
 
-  echo "[INFO] Applying $filename"
+  log "$LOG_INF" "Applying $filename"
   kubectl apply -f "$local_yaml"
 }
 
 
 function deploy_custom_cluster_builder() {
-  echo "[DEBUG] deploy_custom_cluster_builder( '${1:-}', '${2:-}', '${3:-}' ) - START"
+  log "$LOG_DBG" "deploy_custom_cluster_builder( '${1:-}', '${2:-}', '${3:-}' ) - START"
   local clusterbuilder_name=${1:-${CLUSTERBUILDER_NAME?Default variable 'CLUSTERBUILDER_NAME' is not set for function 'deploy_custom_cluster_builder'}}
   local image_registry=${2:-${LOCAL_IMAGE_REGISTRY_FQDN:-}}
   local paketo_registry="index.docker.io"
 
-  echo "[DEBUG] LOCAL_IMAGE_REGISTRY_FQDN='${LOCAL_IMAGE_REGISTRY_FQDN:-_notset_}', image_registry='${image_registry:-}'"
+  log "$LOG_TRC" "LOCAL_IMAGE_REGISTRY_FQDN='${LOCAL_IMAGE_REGISTRY_FQDN:-_notset_}', image_registry='${image_registry:-}'"
   [[ -n "$image_registry" ]] && paketo_registry="${image_registry}/${paketo_registry}"
 
-  echo "[INFO] Deploying custom ClusterBuilder using only images from trusted registry"
+  log "$LOG_INF" "Deploying custom ClusterBuilder using only images from trusted registry"
 
 ## NOTE: Service account kpack-service-account will be created in namespace $ROOT_NAMESPACE (def
 ##       cf) in scope of the helm chart of korifi later in this script in.
@@ -150,30 +149,30 @@ function install_kpack() {
   #       kpack installation might fail because some CRD's are not installed in time               <
   #       By installing only the CRD parts of kpack first, this issue is bypassed                  <
   
-  echo "[INFO] Installing kpack..."
+  log "$LOG_INF" "Installing kpack..."
   curl -L -o "$local_kpack_file" "$kpack_release_url"
   adjust_images_to_local_registry "$local_kpack_file" "" "" "$KPACK_VERSION"
 
-  echo "[INFO] Applying CRDs only..."
+  log "$LOG_DBG" " Applying CRDs only..."
   # shellcheck disable=SC2002 # yq doesn't always work fine with yq ... file, hence the variant
   kubectl apply -f <(yq e 'select(.kind == "CustomResourceDefinition")' "$local_kpack_file")
 
-  echo "[INFO] Waiting for ClusterLifecycle CRD..."
+  log "$LOG_DBG" " Waiting for ClusterLifecycle CRD..."
   until kubectl get crd clusterlifecycles.kpack.io >/dev/null 2>&1; do
     echo -n "."
     sleep 2
   done
-  echo " ClusterLifecycle CRD is now available."
+  log "$LOG_DBG" " ClusterLifecycle CRD is now available."
 
-  echo "[INFO] Applying kpack release YAML..."
+  log "$LOG_DBG" " Applying kpack release YAML..."
   kubectl apply -f "$local_kpack_file"
 
   deploy_custom_cluster_builder "$CLUSTERBUILDER_NAME" 
 
-  echo "[INFO] Waiting for kpack pods to be running..."
+  log "$LOG_DBG" " Waiting for kpack pods to be running..."
   kubectl wait --for=condition=Ready pod --all --namespace kpack --timeout=60s
-  echo "[INFO] kpack installation done."
-  echo ""
+
+  log "$LOG_INF" "kpack installation done.\n"
 }
 
 
@@ -192,7 +191,7 @@ function create_k8s_user_cert() {
 
   trap 'echo -n "[TRAP ] Cleaning up cert files..." && rm -f "$KEY_FILE" "$CSR_FILE" "$CRT_FILE" && echo "..done"' RETURN
 
-  echo "[INFO] Creating K8s user '$username'..."
+  log "$LOG_INF" "Creating K8s user '$username'..."
   openssl genrsa -out "$KEY_FILE" 2048
   openssl req -new -key "$KEY_FILE" -out "$CSR_FILE" -subj "/CN=${username}"
 
@@ -243,7 +242,7 @@ EOF
   #EOF                                                                                             
   #kubectl -f apply $tmp/user_${username}.yaml                                                     
 
-  echo "[INFO] K8s user '$username' created."
+  log "$LOG_INF" "K8s user '$username' created."
 }
 
 
@@ -263,25 +262,26 @@ function sync_k8s_user() {
   current_cluster=$(kubectl config view --minify | yq '.clusters[0].name')
 
   if [[ "$current_cluster"  != "${k8s_prefix}${k8s_cluster}" ]];then
-    echo "K8s not using correct cluster ($current_cluster), changing to 'k8s_cluster'..."
+    log "$LOG_WRN" "K8s not using correct cluster ($current_cluster), changing to 'k8s_cluster'..."
 
     # Try to switch to specified username
 
-    echo " - validate username '$username' against k8s"
-    echo "   TRC: assert kubectl config get-contexts | grep \"$username\" >/dev/null"
+    log "$LOG_TRC" " - validate username '$username' against k8s"
+    log "$LOG_CMD" "   assert kubectl config get-contexts | grep \"$username\" >/dev/null"
     assert kubectl config get-contexts | grep "$username" >/dev/null
 
-    echo " - switch to k8s context ${username}"
-    echo "   TRC: kubectl config use-context ${username}"
+    log "$LOG_TRC" " - switch to k8s context ${username}"
+    log "$LOG_TRC" "   kubectl config use-context ${username}"
     if ! kubectl config use-context "${username}"; then
       # when failed (e.g. because admin not created yet), use default user
-      echo "   TRC: kubectl config use-context ${k8s_prefix}${k8s_cluster}"
+      log "$LOG_WRN" "   Changing config to $username failed! Switching to ${k8s_prefix}${k8s_cluster} instead as fallback"
+      log "$LOG_TRC" "   kubectl config use-context ${k8s_prefix}${k8s_cluster}"
       kubectl config use-context "${k8s_prefix}${k8s_cluster}"
     fi
 
-    echo "...done"
+    log "$LOG_INF" "...done"
   else
-    echo "correct K8s cluster is in use ($k8s_cluster)"
+    log "$LOG_DBG" "correct K8s cluster is in use ($k8s_cluster)"
   fi
 }
 
@@ -290,26 +290,26 @@ function switch_user() {
   local username=${1?Parameter 'username' is missing in call to function 'switch_user'}
   local cf_api_domain=${2:-${CF_API_DOMAIN:?CF_API_DOMAIN not set in call to switch_user()}}
 
-  echo "Switch to user '$username'..."
+  log "$LOG_INF" "Switch to user '$username'..."
   # Validate name in k8s
-  echo " - validate username '$username' against k8s"
+  log "$LOG_TRC" " - validate username '$username' against k8s"
   assert "kubectl config get-contexts -o name | grep -q \"^${username}$\""
   
   # Remark: Is it really required to switch context in k8s?!? If possible, remove it!!
   #         It is required to access the same K8s cluster with both cf and kubectl (if both are used),
   #         so therefore the switch will be made in K8s as well
   
-  echo " - switch to k8s context ${username}"
+  log "$LOG_TRC" " - switch to k8s context ${username}"
   assert kubectl config use-context "${username}"
 
-  echo " - setting cf api"
+  log "$LOG_TRC" " - setting cf api"
   cf api "https://$cf_api_domain" --skip-ssl-validation
 
-  echo " - executing cf auth"
-  echo "   cf auth '${username}'"
+  log "$LOG_TRC" " - executing cf auth"
+  log "$LOG_CMD" "   cf auth '${username}'"
   cf auth "${username}"
 
-  echo "...done"
+  log "$LOG_INF" "...done"
 }
 
 
@@ -321,34 +321,33 @@ function add_to_etc_hosts() {
   if [[ -z "$search_string" ]]; then
     # add a new line with the given add_string at the end of the file
     if ! grep -qF "$add_string" /etc/hosts; then
-      echo "DBG: Adding as new line"
+      log "$LOG_DBG" "Adding line '$add_string' to /etc/hosts"
       # shellcheck disable=SC2090
       echo "$add_string" | $SUDOCMD tee -a /etc/hosts >/dev/null
     else
-      echo "DBG: Line already existing ($add_string)"
+      log "$LOG_DBG" "Line '$add_string' already existing in /etc/hosts. No action required."
     fi
   else
     # add the add_string to the line(s) where the search_string is found,
     # before or after the search_string
     if ! grep -qF "$add_string" /etc/hosts; then
-      echo "DBG: Adding '$add_string' to above mentioned line"
       case "${before_or_after^^}" in
         "BEFORE")
-          echo "adding '$add_string' BEFORE '$search_string'"
+          log "$LOG_DBG" "adding '$add_string' BEFORE '$search_string'"
           # shellcheck disable=SC2090
           $SUDOCMD sed -i "s/$search_string/$add_string $search_string/" /etc/hosts
           ;;
         "AFTER")
-          echo "adding '$add_string' AFTER '$search_string'"
+          log "$LOG_DBG" "adding '$add_string' AFTER '$search_string'"
           # shellcheck disable=SC2090
           $SUDOCMD sed -i "s/$search_string/$search_string $add_string/" /etc/hosts
           ;;
         *)
-          echo "WARNING: Invalid direction '$before_or_after'. No changes made!"
+          die 1 "Invalid direction '$before_or_after' in call to add_to_etc_hosts!"
           ;;
       esac
     else
-      echo "WARNING: string '$add_string' already present, no need to add"
+      log "$LOG_DBG" "Line '$add_string' already existing in /etc/hosts. No action required."
     fi
     echo ""
   fi
@@ -358,26 +357,21 @@ function add_to_etc_hosts() {
 function ensure_korifi_ready() {
 
   ## Verify Service Account and Registry Secret
-  echo "🔍 Verifying image-registry-credentials secret..."
-  kubectl get secret image-registry-credentials -n cf >/dev/null || {
-    echo "[TRACE] kubectl get secret image-registry-credentials -n cf"
-    echo "❌ Registry credentials not found in 'cf' namespace"
-    exit 1
-  }
+  log "$LOG_DBG" "🔍 Verifying image-registry-credentials secret..."
+  log "$LOG_CMD" "kubectl get secret image-registry-credentials -n cf"
+  kubectl get secret image-registry-credentials -n cf >/dev/null || die 1 "❌ Registry credentials not found in 'cf' namespace"
 
-  echo "🔍 Verifying kpack-service-account uses the correct secret..."
-  kubectl get serviceaccount kpack-service-account -n "$ROOT_NAMESPACE" -o jsonpath='{.imagePullSecrets[*].name}' | grep -q image-registry-credentials || {
-    echo "[TRACE] kubectl get serviceaccount kpack-service-account -n $ROOT_NAMESPACE -o jsonpath='{.imagePullSecrets[*].name}' | grep -q image-registry-credentials"
-    echo "❌ kpack-service-account does not reference image-registry-credentials"
-    exit 1
-  }
+  log "$LOG_DBG" "🔍 Verifying kpack-service-account uses the correct secret..."
+  log "$LOG_CMD" "kubectl get serviceaccount kpack-service-account -n $ROOT_NAMESPACE -o jsonpath='{.imagePullSecrets[*].name}' | grep -q image-registry-credentials"
+  kubectl get serviceaccount kpack-service-account -n "$ROOT_NAMESPACE" -o jsonpath='{.imagePullSecrets[*].name}' | grep -q image-registry-credentials || die 1 "❌ kpack-service-account does not reference image-registry-credentials"
 
   ## Force ClusterBuilder Reconciliation
-  echo "🔁 Forcing ClusterBuilder rebuild..."
+  log "$LOG_DBG" "🔁 Forcing ClusterBuilder rebuild..."
   kubectl annotate clusterbuilder "$CLUSTERBUILDER_NAME" "kpack.io/force-rebuild=$(date +%s)" --overwrite
 
   # Wait for it to become ready (loop with timeout)
-  echo "⏳ Waiting for ClusterBuilder to become Ready..."
+  log "$LOG_DBG" "⏳ Waiting for ClusterBuilder to become Ready..."
+  log "$LOG_CMD" "kubectl get clusterbuilder $CLUSTERBUILDER_NAME -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'"
   local READY=""
   for _ in {1..30}; do
     READY=$(kubectl get clusterbuilder "$CLUSTERBUILDER_NAME" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
@@ -385,36 +379,27 @@ function ensure_korifi_ready() {
     sleep 5
   done
 
-  [[ "$READY" != "True" ]] && {
-    echo "[TRACE] kubectl get clusterbuilder $CLUSTERBUILDER_NAME -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'"
-    echo "❌ ClusterBuilder is not ready after timeout"
-    exit 1
-  }
-  echo "✅ ClusterBuilder is ready"
+  [[ "$READY" != "True" ]] && die 1 "❌ ClusterBuilder is not ready after timeout"
+  log "$LOG_INF" "✅ ClusterBuilder is ready"
 
   ## Validate Registry Reachability (optional)
   if [[ -n "$LOCAL_IMAGE_REGISTRY_FQDN" ]]; then
-    echo "🌐 Testing access to internal registry..."
-    if ! curl -s --connect-timeout 5 "http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/" >/dev/null; then
-      echo "[TRACE] curl -s --connect-timeout 5 http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/"
-      echo "❌ Cannot reach internal image registry"
-      exit 1
-    fi
+    log "$LOG_DBG" "🌐 Testing access to internal registry..."
+    log "$LOG_CMD" "curl -s --connect-timeout 5 http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/"
+    curl -s --connect-timeout 5 "http://${LOCAL_IMAGE_REGISTRY_FQDN}/v2/" >/dev/null || die 1 "❌ Cannot reach internal image registry"
   fi
 
   ## Check BuildTemplates & ClusterStack Are Ready (optional)
-  echo "🔍 Checking ClusterStack is ready..."
+  log "$LOG_DBG" "🔍 Checking ClusterStack is ready..."
+  log "$LOG_CMD" "kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep True"
   if [[ "$(kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" != "True" ]]; then
-    echo "[TRACE] kubectl get clusterstack base-stack -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep True"
-    echo "❌ ClusterStack 'base-stack' is not ready"
-    exit 1
+    die 1 "❌ ClusterStack 'base-stack' is not ready"
   fi
 
-  echo "🔍 Checking ClusterStore is ready..."
+  log "$LOG_DBG" "🔍 Checking ClusterStore is ready..."
+  log "$LOG_CMD" "kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep True"
   if [[ "$(kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" != "True" ]]; then
-    echo "[TRACE] kubectl get clusterstore base-store -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep True"
-    echo "❌ ClusterStore not ready"
-    exit 1
+    die 1 "❌ ClusterStore not ready"
   fi
 }
 
