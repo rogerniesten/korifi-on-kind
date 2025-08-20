@@ -12,9 +12,16 @@ scriptpath="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 ##
 ## Config
 ##
+
+# logging
+export log_level="$LOG_TRC"
+export show_timestamp=false
+export log_commands_always=true
+
+# Korifi
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env.korifi" || die 1 "Config ERROR! Script aborted"      # read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -23,8 +30,7 @@ strongly_advice_root
 ##
 ## Check prerequisits
 ##
-echo ""
-echo "Check prerequisits..."
+log "$LOG_INF" "Check prerequisits..."
 # Are all required tools available?
 assert jq --version
 assert go version
@@ -33,6 +39,7 @@ assert helm version
 assert cf --version
 
 # Make sure kubenetes user and cf account are in sync
+switch_user "$ADMIN_USERNAME"
 sync_k8s_user "$ADMIN_USERNAME"
 
 # Is KIND kluster running?
@@ -40,16 +47,16 @@ assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"
 
 # Is Korifi up and running?
 #kubectl config use-context kind-korifi
-echo "cf api https://${CF_API_DOMAIN} --skip-ssl-validation"
+log "$LOG_CMD" "cf api https://${CF_API_DOMAIN} --skip-ssl-validation"
 cf api "https://${CF_API_DOMAIN}" --skip-ssl-validation
-echo "cf login -u ${ADMIN_USERNAME} -a https://${CF_API_DOMAIN} --skip-ssl-validation"
+log "$LOG_CMD" "cf login -u ${ADMIN_USERNAME} -a https://${CF_API_DOMAIN} --skip-ssl-validation"
 cf login -u "${ADMIN_USERNAME}" -a "https://${CF_API_DOMAIN}" --skip-ssl-validation
 
 cf target -o org -s space
 
 kubectl get pods -n korifi
 assert "kubectl get pods -n korifi | grep Running"
-echo "...done"
+log "$LOG_INF" "...done"
 
 
 
@@ -123,7 +130,7 @@ function create_rbac() {
   org_guid=$(cf org --guid "${userorg}")
   space_guid=$(cf space --guid "${userspace}")
 
-  echo "Create RBAC (for $username in $userorg as $cf_org_role)..."
+  log "$LOG_INF" "Create RBAC (for $username in $userorg as $cf_org_role)..."
   # Note:
   # The commands 'cf set-org-role ...', 'kubectl create rolebinding ...' and 'kubectl  apply -f rolebinding.yaml'
   # have a three the same result! (except for the auto-generated binding name for cf set-org-role)
@@ -136,24 +143,24 @@ function create_rbac() {
   # The command 'cf set-org-role' must be used and the other two are completely superfluous and can
   # be removed.
 
-  echo " - set role '${cf_org_role}' for user '${username}' for org '${userorg}'"
+  log "$LOG_DBG" " - set role '${cf_org_role}' for user '${username}' for org '${userorg}'"
   #echo "   DBG: cf set-org-role \"${username}\" \"${userorg}\" \"${cf_org_role}\""
   cf set-org-role "${username}" "${userorg}" "${cf_org_role}"
 
   # Verify Kubernetes RoleBinding
-  echo " - verifying the RoleBinding in Kubernetes"
+  log "$LOG_DBG" " - verifying the RoleBinding in Kubernetes"
   #echo "   DBG: kubectl get rolebindings -n \"${org_guid}\""
   kubectl get rolebindings -n "${org_guid}"
 
-  echo " - set role '${cf_space_role}' for user '${username}' for space ${userspace} in org '${userorg}'"
+  log "$LOG_DBG" " - set role '${cf_space_role}' for user '${username}' for space ${userspace} in org '${userorg}'"
   #echo "   DBG: cf set-space-role \"${username}\" \"${userorg}\" \"${userspace}\" \"${cf_space_role}\""
   cf set-space-role "${username}" "${userorg}" "${userspace}" "${cf_space_role}"
 
   # Verify Kubernetes RoleBinding for Space ${userorg}-space
-  echo " - verifying the RoleBinding in Kubernetes for space '${userspace}' ($space_guid)"
+  log "$LOG_DBG" " - verifying the RoleBinding in Kubernetes for space '${userspace}' ($space_guid)"
   #echo "   DBG: kubectl get rolebindings -n \"${space_guid}\""
   kubectl get rolebindings -n "${space_guid}"
-  echo "...Done"
+  log "$LOG_INF" "...Done"
 }
 
 ## Grant access to users for orgs
@@ -166,44 +173,45 @@ create_rbac "roger@${K8S_CLUSTER_KORIFI}" "nieuwegein"
 ##
 ## Now show the results of the demo
 ##
-echo ""
-echo ""
-echo "Show orgs for different users based on their access"
-echo "==================================================="
-echo ""
+log "$LOG_INF" "
+
+Show orgs for different users based on their access
+===================================================
+"
 
 # 1. Show all orgs as admin
-echo "Show all orgs as admin"
+log "$LOG_INF" "Show all orgs as admin"
 switch_user "${ADMIN_USERNAME}"
 
-echo "exec: cf orgs"
+log "$LOG_CMD" "cf orgs"
 cf orgs #2>/dev/null
 
-echo "--------------"
+log "$LOG_INF" "--------------"
 
 
 # 2. Show all accessible orgs as anton
-echo "Show all accessible orgs as anton@${K8S_CLUSTER_KORIFI}"
+log "$LOG_INF" "Show all accessible orgs as anton@${K8S_CLUSTER_KORIFI}"
 switch_user "anton@${K8S_CLUSTER_KORIFI}"
 
-echo "exec: cf orgs"
+log "$LOG_CMD" "cf orgs"
 cf orgs #2>/dev/null
 
-echo "--------------"
+log "$LOG_INF" "--------------"
 
 
 # 3. Show all accessible orgs as roger
-echo "Show all accessible orgs as roger@${K8S_CLUSTER_KORIFI}"
+log "$LOG_INF" "Show all accessible orgs as roger@${K8S_CLUSTER_KORIFI}"
 switch_user "roger@${K8S_CLUSTER_KORIFI}"
 
-echo "exec: cf orgs"
+log "$LOG_INF" "cf orgs"
 cf orgs #2>/dev/null
 
-echo "--------------"
+log "$LOG_INF" "--------------"
 
 
 # 9. switch back to admin
 switch_user "${ADMIN_USERNAME}"
 
-echo "==== END OF SCRIPT ===="
-echo ""
+log "$LOG_INF" "
+==== END OF SCRIPT ====
+"
