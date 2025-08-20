@@ -271,11 +271,11 @@ function sync_k8s_user() {
     assert kubectl config get-contexts | grep "$username" >/dev/null
 
     log "$LOG_TRC" " - switch to k8s context ${username}"
-    log "$LOG_TRC" "   kubectl config use-context ${username}"
+    log "$LOG_CMD" "   kubectl config use-context ${username}"
     if ! kubectl config use-context "${username}"; then
       # when failed (e.g. because admin not created yet), use default user
       log "$LOG_WRN" "   Changing config to $username failed! Switching to ${k8s_prefix}${k8s_cluster} instead as fallback"
-      log "$LOG_TRC" "   kubectl config use-context ${k8s_prefix}${k8s_cluster}"
+      log "$LOG_CMD" "   kubectl config use-context ${k8s_prefix}${k8s_cluster}"
       kubectl config use-context "${k8s_prefix}${k8s_cluster}"
     fi
 
