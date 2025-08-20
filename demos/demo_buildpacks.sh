@@ -13,6 +13,14 @@ scriptpath="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 ##
 ## Config
 ##
+
+# logging
+export log_level="$LOG_TRA"
+export show_timestamp=false
+export log_commands_always=true
+
+
+# korifi
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 . "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
@@ -24,8 +32,7 @@ strongly_advice_root
 ##
 ## Check prerequisits
 ##
-echo ""
-echo "Check prerequisits..."
+log "$LOG_INF" "Check prerequisits..."
 # Are all required tools available?
 assert jq --version
 assert go version
@@ -201,17 +208,16 @@ echo "...done"
 # https://carvel.dev/kbld/docs/v0.32.0/install/
 function kbld_install() {
   if [[ -f "/usr/local/bin/kbld" ]];then
-    echo "already availabe on machine, no need to install"
+    log "$LOG_DBG" "already availabe on machine, no need to install"
   else
-    echo "Installing kbld and dependencies"
+    log "$LOG_INF" "Installing kbld and dependencies"
     wget -O- https://carvel.dev/install.sh > install.sh
     sudo bash install.sh
   fi
 }
-echo ""
-echo "Install kbld"
+
+log "$LOG_INF" "Install kbld"
 kbld_install
-echo ""
 
 
 # To align with the tutorial, lets use the mentioned org and namespace
@@ -219,93 +225,90 @@ echo "Prepare org and space for this tutorial"
 cf create-org tutorial-org
 cf create-space -o tutorial-org tutorial-space
 cf target -o tutorial-org -s tutorial-space
-echo ""
 
 
 # Now clone the repository of a simple java application
-echo "Clone the git repo with all sample web apps"
-cd "$REPO_PATH/.." || exit 99	#switch to the parent folder, where all git repos are located
+log "$LOG_INF" "Clone the git repo with all sample web apps"
+cd "$REPO_PATH/.." || die 99 "Cannot change to folder '$REPO_PATH/..'"	#switch to the parent folder, where all git repos are located
 [[ -d "sample-web-apps" ]] || git clone https://github.com/sylvainkalache/sample-web-apps
-cd sample-web-apps || exit 99
+cd sample-web-apps || die 99 "Cannot change to folder 'sample-web-apps'"
 APPS_DIR=$(pwd)
-echo ""
-echo "List of current folder (${APPS_DIR}):"
+log "$LOG_INF" "List of current folder (${APPS_DIR}):"
 ls -la
 
 # Now push the sample java app to korifi
-echo ""
-echo ""
-echo "============================================"
-echo "Demo 1: Push a sample JAVA web app to korifi"
-echo "        (${APPS_DIR}/java)"
-echo "============================================"
+log "$LOG_INF" "
+
+============================================
+Demo 1: Push a sample JAVA web app to korifi
+        (${APPS_DIR}/java)
+============================================
+"
 APP_NAME="my-java-app"
 cd "${APPS_DIR}/java" || exit 99
-echo ""
-echo "cf push $APP_NAME"
+log "$LOG_CMD" "cf push $APP_NAME"
 cf push "$APP_NAME"
-echo ""
+log "$LOG_INF"  ""
 
 # Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
 app_url=$(cf curl "/v3/apps/$(cf app "$APP_NAME" --guid)/routes" | jq -r '.resources[0].url')
 add_to_etc_hosts "$app_url" "$CF_APPS_DOMAIN"
 
 # let's check the result of the app
-echo ""
-echo "Let's check the app"
-echo "-------------------"
-echo ""
-echo "cf app $APP_NAME"
-cf app "$APP_NAME"
-echo ""
+log "$LOG_INF" "
+Let's check the app
+-------------------
+"
 
-echo "Call the URL of the app: curl --insecure https://$app_url:$CF_HTTPS_PORT"
+log "$LOG_CMD" "cf app $APP_NAME"
+cf app "$APP_NAME"
+log "$LOG_INF" ""
+
+log "$LOG_INF" "Call the URL of the app: curl --insecure https://$app_url:$CF_HTTPS_PORT"
 curl --insecure "https://$app_url:$CF_HTTPS_PORT"
 # Expected:
 #	Hello, World!
 #	Java Version: 21.0.7
-echo ""
+log "$LOG_INF" ""
 
-echo "Show the headers of the call: curl -I --insecure https://$app_url:$CF_HTTPS_PORT"
+log "$LOG_INF" "Show the headers of the call: curl -I --insecure https://$app_url:$CF_HTTPS_PORT"
 curl -I --insecure "https://$app_url:$CF_HTTPS_PORT"
 #	HTTP/2 200
 #	date: Tue, 29 Apr 2025 09:08:16 GMT
 #	x-envoy-upstream-service-time: 2
 #	vary: Accept-Encoding
 #	server: envoy
-echo ""
+log "$LOG_INF" ""
 
 
 
 # Now push the sample Python app to korifi
-echo ""
-echo ""
-echo "=============================================="
-echo "Demo 2: Push a sample Python web app to korifi"
-echo "        for a non-pre-installed buildpack"
-echo "        (${APPS_DIR}/python)"
-echo "=============================================="
+log "$LOG_INF" "
+
+=============================================
+Demo 2: Push a sample Python web app to korifi
+        for a non-pre-installed buildpack
+        (${APPS_DIR}/python)
+==============================================
+"
 APP_NAME="my-python-app"
 cd "${APPS_DIR}/python" || exit 99
-echo ""
+log "$LOG_INF" ""
 ls -la
-echo ""
+log "$LOG_INF" ""
 
 function show_buildpacks() {
   local clusterbuilder=$1
   local clusterstore=$2
 
-  echo ""
-  echo "----------------------------------------------------------------"
-  echo "[DEBUG] snipped from clusterstore '$clusterstore'"
-  echo "specs.sources:"
+  log "$LOG_DBG" "---------------------------------------------------------------"
+  log "$LOG_DBG" "snipped from clusterstore '$clusterstore' (.spec.sources):"
   kubectl get clusterstore "$clusterstore" -o yaml | yq eval ".spec.sources"
 
-  echo "[DEBUG] snipped from clusterbuilder '$clusterstore'"
-  echo "specs.order:"
+  log "$LOG_DBG" "snipped from clusterbuilder '$clusterstore' (.specs.order):"
   kubectl get clusterbuilder "$clusterbuilder" -o yaml | yq eval ".spec.order"
 
-  echo "[DEBUG] cf buildpacks"
+  log "$LOG_TR5" "cf buildpacks"
   cf buildpacks
   echo "----------------------------------------------------------------"
   echo ""
@@ -314,11 +317,11 @@ function show_buildpacks() {
 # Wait for the ClusterBuilder to be ready
 function wait_for_clusterbuilder_ready() {
   local clusterbuilder=${1:-custom-cluster-builder}
-  echo "[DEBUG] Waiting for ClusterBuilder '$clusterbuilder' to become Ready..."
+  log "$LOG_DBG" "Waiting for ClusterBuilder '$clusterbuilder' to become Ready..."
   while true; do
     ready=$(kubectl get clusterbuilder "$clusterbuilder" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
     if [[ "$ready" == "True" ]]; then
-      echo "[DEBUG] ClusterBuilder '$clusterbuilder' is ready."
+      log "$LOG_DBG" "ClusterBuilder '$clusterbuilder' is ready."
       break
     fi
     sleep 1
@@ -345,48 +348,48 @@ function add_buildpack() {
   clusterstore=$(kubectl get clusterbuilder "$clusterbuilder" -o jsonpath='{.spec.store.name}')
   assert test -n "$clusterstore"
 
-  echo "[DEBUG] Situation before:"
+  log "$LOG_DBG" "Situation before:"
   show_buildpacks "$clusterbuilder" "$clusterstore"
 
-  echo "[INFO ] Adding '$buildpack' to clusterstore '$clusterstore' (as python is not included by default in Korifi)"
+  log "$LOG_INF" "Adding '$buildpack' to clusterstore '$clusterstore' (as python is not included by default in Korifi)"
   if ! kubectl get clusterstore "$clusterstore" -o json | jq -e ".spec.sources[]?.image == \"$buildpack\"" > /dev/null; then
     local existing_sources merged_sources full_patch
-    echo "🔧 Adding buildpack to ClusterStore: $buildpack"
+    log "$LOG_DBG" "🔧 Adding buildpack to ClusterStore: $buildpack"
     existing_sources=$(kubectl get clusterstore "$clusterstore" -o json | jq '.spec.sources')		# get existin sources
     merged_sources=$(echo "$existing_sources" | jq --arg image "$buildpack" '. + [{image: $image}]')	# merge new source into the existing array
     full_patch=$(jq -n --argjson sources "$merged_sources" '{"spec": {"sources": $sources}}')		# create full patch to payload with merged sources
     kubectl patch clusterstore "$clusterstore" --type merge -p "$full_patch"				# apply patch
   else
-    echo "✅ Buildpack already present in ClusterStore: $buildpack"
+    log "$LOG_DBG" "✅ Buildpack already present in ClusterStore: $buildpack"
   fi
 
-  echo "[INFO ] Adding '$buildpack_name' on top of the spec.order group list of clusterbuilder '$clusterbuilder'"
+  log "$LOG_INF" "Adding '$buildpack_name' on top of the spec.order group list of clusterbuilder '$clusterbuilder'"
   # The tutorial doesn't mention why it has to be on top. I assume this is done in the tutorial to prevent other buildpacks to do an attempt (performance and reliability)
   if ! kubectl get clusterbuilder "$clusterbuilder" -o json | jq -e ".spec.order[].group[]?.id == \"$buildpack_id\"" > /dev/null; then
     local existing_order new_group merged_order full_patch
-    echo "🔧 Adding buildpack to ClusterBuilder: $buildpack_id"
+    log "$LOG_DBG" "🔧 Adding buildpack to ClusterBuilder: $buildpack_id"
     new_group="{\"group\": [{\"id\": \"$buildpack_id\"}]}"                                      	# create json patch that appends to the array
     existing_order=$(kubectl get clusterbuilder "$clusterbuilder" -o json | jq '.spec.order')		# Get existing .spec.order
     merged_order=$(echo "$existing_order" | jq ". + [ $new_group ]")					# Append new group with buildpack id
     full_patch=$(jq -n --argjson order "$merged_order" '{"spec": {"order": $order}}')			# Construct full patch with new order
     kubectl patch clusterbuilder "$clusterbuilder" --type merge -p "$full_patch"			# Apply patch
   else
-    echo "✅ Buildpack already present in ClusterBuilder: $buildpack_id"
+    log "$LOG_DBG" "✅ Buildpack already present in ClusterBuilder: $buildpack_id"
   fi
 
   # avoid race condition (wait for python to be available)
   wait_for_clusterbuilder_ready "$clusterbuilder"
 
-  echo "[DEBUG] Situation after:"
+  log "$LOG_DBG" "Situation after:"
   show_buildpacks "$clusterbuilder" "$clusterstore"
 }
 
 ## Add paketo-buildpacks/python to the clusterstore
-echo "Adding paketo-buildpacks/python to clusterstore (as python is not included by default in Korifi)"
+log "$LOG_INF" "Adding paketo-buildpacks/python to clusterstore (as python is not included by default in Korifi)"
 add_buildpack "python"
 
 
-echo "Now push the python app to korifi"
+log "$LOG_INF" "Now push the python app to korifi"
 #cf push "$APP_NAME"
 # For some reason Korifi doesn't recognize that we want to push a Python application, so can't determin
 # which buildpack to use (at least not the first time).
@@ -397,30 +400,33 @@ python_buildpack="paketo-buildpacks/python"
 #?   python_buildpack="$LOCAL_IMAGE_REGISTRY_FQDN/$python_buildpack"
 #? fi
 
-echo "[TRACE] cf push $APP_NAME -b $python_buildpack"
+log "$LOG_CMD" "[TRACE] cf push $APP_NAME -b $python_buildpack"
 cf push "$APP_NAME" -b "$python_buildpack"
-echo ""
+log "$LOG_INF" ""
 
 # Workaround for demo situation: As the route is (most likely) not yet in any DNS or in the /etc/hosts, let's add it
 app_url=$(cf curl "/v3/apps/$(cf app "$APP_NAME" --guid)/routes" | jq -r '.resources[0].url')
 add_to_etc_hosts "$app_url" "$CF_APPS_DOMAIN"
 
 # let's check the result of the app
-echo ""
-echo "Let's check the app"
-echo "-------------------"
-echo ""
-cf app "$APP_NAME"
-echo ""
+log "$LOG_INF" "
+Let's check the app
+-------------------
+"
 
-echo "Call the URL of the app: curl --insecure https://$app_url:$CF_HTTPS_PORT"
+log "$LOG_CMD" "cf app $APP_NAME"
+cf app "$APP_NAME"
+log "$LOG_INF" ""
+
+log "$LOG_INF" "Call the URL of the app: curl --insecure https://$app_url:$CF_HTTPS_PORT"
 curl --insecure "https://$app_url:$CF_HTTPS_PORT"
+
 # Expected:
 #       Hello, World!
 #       Python version: 3.10.17
-echo ""
+log "$LOG_INF" ""
 
-echo "Show the headers of the call: curl -I --insecure https://$app_url:$CF_HTTPS_PORT"
+log "$LOG_INF" "Show the headers of the call: curl -I --insecure https://$app_url:$CF_HTTPS_PORT"
 curl -I --insecure "https://$app_url:$CF_HTTPS_PORT"
 # Expected:
 #	HTTP/2 200
@@ -430,35 +436,12 @@ curl -I --insecure "https://$app_url:$CF_HTTPS_PORT"
 #	content-length: 38
 #	x-envoy-upstream-service-time: 1
 #	vary: Accept-Encoding
-echo ""
+log "$LOG_INF" ""
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-echo ""
-echo "======== END OF SCRIPT ========"
-echo ""
+log "$LOG_INF" "
+======== END OF SCRIPT ========
+"
 
