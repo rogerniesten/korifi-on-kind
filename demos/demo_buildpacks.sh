@@ -15,10 +15,9 @@ scriptpath="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 ##
 
 # logging
-export log_level="$LOG_TRA"
+export log_level="$LOG_TRC"
 export show_timestamp=false
 export log_commands_always=true
-
 
 # korifi
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
