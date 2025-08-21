@@ -12,9 +12,16 @@ scriptpath="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 ##
 ## Config
 ##
+
+# logging
+export log_level="$LOG_TRC"
+export show_timestamp=false
+export log_commands_always=true
+
+# korifi
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env.korifi" || die 1 "Config ERROR! Script aborted"      # read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -27,6 +34,7 @@ SERVICE_NAME=myservice
 ##
 ## Check prerequisits
 ##
+log "$LOG_INF" "Check prerequisits..."
 
 # Is K8s cluster running?
 assert "kubectl cluster-info | grep 'Kubernetes control plane is running'"
@@ -38,27 +46,28 @@ cf target -o org -s space
 
 kubectl get pods -n korifi
 assert "kubectl get pods -n korifi | grep Running"
-echo "...done"
+
+log "$LOG_INF" "...done (check prerequisits)"
 
 
 
 ##
 ## Cleanup
 ##
-echo "Cleanup..."
-echo " - remove service from marketplace"
+log "$LOG_INF" "Cleanup..."
+log "$LOG_DBG" " - remove service from marketplace"
 if cf marketplace | grep -q "$SERVICE_NAME"; then
   cf disable-service-access myservice
 fi
-echo " - purge lingering service offering"
+log "$LOG_DBG" " - purge lingering service offering"
 if cf marketplace | grep -q "$SERVICE_NAME"; then
   cf purge-service-offering "$SERVICE_NAME" -f
 fi
 #>echo " - remove servicebroker"
 #>cf delete-service-broker mybroker -f
-echo " - remove broker-service"
+log "$LOG_DBG" " - remove broker-service"
 kubectl delete -f "$CFG_PATH/broker-service.yaml" --ignore-not-found=true
-echo " - remove broker-deployment"
+log "$LOG_DBG" " - remove broker-deployment"
 kubectl delete -f "$CFG_PATH/broker-deployment.yaml" --ignore-not-found=true
 echo ""
 
@@ -70,25 +79,21 @@ services=$(cf curl /v3/service_offerings | jq '[.resources[] | {name: .name, gui
 broker_guids=$(cf curl /v3/service_brokers | jq '[ .resources[].guid ]')
 # Now filter services for the ones that have related valid broker guid 
 orphan_services=$(echo "$services" | jq --argjson broker_guids "$broker_guids" '.[] | select(.broker_guid as $b | $broker_guids | index($b) | not)')
-echo " - remove orphaned service offerings (workaround)"
-echo -n "   DEBUG:"
-echo "$orphan_services" | jq -c
+log "$LOG_DBG" " - remove orphaned service offerings (workaround)"
+log "$LOG_TRC" "$(echo "$orphan_services" | jq -c)"
 # Now loop over all orphans and remove them
 echo "$orphan_services" | jq -c | while read -r svc; do
   #echo "Processing: $svc"
   orphan_name=$(echo "$svc" | jq -r '.name')
   broker_guid=$(echo "$svc" | jq -r '.broker_guid')
   broker_name=$(echo "$broker_guids" | jq -r --arg guid "$broker_guid" '.[] | select(.guid == $guid) | .name')
-  echo "   -> Purging orphaned service offering: $orphan_name (broker guid: $broker_guid, broker name: $broker_name)"
+  log "$LOG_TRC" "  -> Purging orphaned service offering: $orphan_name (broker guid: $broker_guid, broker name: $broker_name)"
   cf purge-service-offering "$orphan_name" -b "$broker_name" -f
 done
 
-echo " - waiting for completion"
+log "$LOG_DBG" " - waiting for completion"
 sleep 5 # just try 5 seconds
-echo "...done"
-echo ""
-
-
+log "$LOG_INF" "...done\n"
 
 
 
@@ -155,7 +160,7 @@ CONTAINER_NAME="my-service-broker"
 #  echo -n "."
 #  sleep 1
 #done
-#echo "$CONTAINER_NAME is now running!"
+#log "$LOG_DBG" "$CONTAINER_NAME is now running!"
 
 # Wait until my-service-broker container is up&running
 #echo -n "Waiting for $CONTAINER_NAME to be running."
@@ -163,7 +168,7 @@ CONTAINER_NAME="my-service-broker"
 #  echo -n "."
 #  sleep 1
 #done
-#echo "$CONTAINER_NAME is now running!"
+#log "$LOG_DBG" "$CONTAINER_NAME is now running!"
 
 
 # deploy the service-broker to kubernetes
@@ -171,10 +176,10 @@ kubectl apply -f "$CFG_PATH/broker-deployment.yaml"
 kubectl apply -f "$CFG_PATH/broker-service.yaml"
 
 # wait until the pods are running
-echo "Waiting for pod to be ready..."
+log "$LOG_DBG" "Waiting for pod to be ready..."
 # shellcheck disable=SC2090	# it's a command, so all escaping is on purpose here
 kubectl wait --for=create pods -l app=my-service-broker --timeout=300s
-echo "All pods are ready. Proceeding with next steps..."
+log "$LOG_DBG" "All pods are ready. Proceeding with next steps..."
 
 
 # check output of container when requesting service catalog
@@ -210,7 +215,7 @@ echo "All pods are ready. Proceeding with next steps..."
 
 # Get the Name and IP of the broker pod
 broker_name=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" | grep "^${CONTAINER_NAME}")
-echo "Broker-name : $broker_name"
+log "$LOG_INF" "Broker-name : $broker_name"
 broker_ip=$(kubectl get pod "${broker_name}" -o jsonpath='{.status.podIP}')
 
 # WORKAROUND:
@@ -219,40 +224,36 @@ broker_ip=$(kubectl get pod "${broker_name}" -o jsonpath='{.status.podIP}')
 # So if the podID is empty, we'll have to retry (potentially a few times)
 x=1
 while [[ "$broker_ip" == "" ]];do
-  #echo ""
-  #echo "pod info:"
-  #echo "========"
-  #kubectl get pod $broker_name -o jsonpath='{}'
-  #echo ""
-  echo -n "Broker-IP not set yet! Waiting $x seconds before retrying ["
-  for (( i=0; i<x; i++ )); do
-    echo -n "."
-    sleep 1
-  done
-  echo "]"
+  log "$LOG_TRC" "
+  pod info:
+  ========
+  $(kubectl get pod "$broker_name" -o jsonpath='{}')
+  "
+  log "$LOG_DBG" "Broker-IP not set yet! Waiting $x seconds before retrying ["
+  sleep "$x"
   broker_ip=$(kubectl get pod "$broker_name" -o jsonpath='{.status.podIP}')
   x=$((x*2))
 done
-echo "Broker-IP   : $broker_ip"
+log "$LOG_INF" "Broker-IP   : $broker_ip"
 echo ""
 
 
-# Run a temporary Pod with crul on board to call the catalog api of the catalog
+# Run a temporary Pod with curl on board to call the catalog api of the catalog
 # Note that IP and port are different! Internal K8s network
 broker_catalog_url="http://${broker_ip}:3000/v2/catalog"
-echo "Try to reach the broker URL ($broker_catalog_url) from witin a k8s pod"
+log "$LOG_INF" "Try to reach the broker URL ($broker_catalog_url) from witin a k8s pod"
 kubectl run curlpod --image=curlimages/curl -it --rm --restart=Never -- curl -s -u broker:broker "$broker_catalog_url" -H 'X-Broker-API-Version: 2.3' | sed -n '1p' | jq
 # Expected: same result as mentioned above
-echo ""
+log "$LOG_INF" ""
 
 
 #
 # Create the service broker
 #
-echo "Create service broker 'mybroker'..."
+log "$LOG_INF" "Create service broker 'mybroker'..."
 cf -v create-service-broker mybroker broker broker "http://${broker_ip}:3000"
 # Note that the IP and Port must be K8s (Korifi) Internal!!!
-echo "...done"
+log "$LOG_INF" "...done"
 echo ""
 
 # Service broker can be removed by:
@@ -260,7 +261,7 @@ echo ""
 
 
 ## Add the service to the marketplace
-echo "Add service '$SERVICE_NAME' to the cf marketplace..."
+log "$LOG_INF" "Add service '$SERVICE_NAME' to the cf marketplace..."
 cf enable-service-access "$SERVICE_NAME"
 ## NOTE:
 #	First it didn't work:
@@ -272,40 +273,39 @@ cf enable-service-access "$SERVICE_NAME"
 #	This has been fixed in a workaround immediately after the cleanup. Now it works fine :-)
 
 # Verify
-echo "Show service in Korifi marketplace:"
+log "$LOG_INF" "Show service in Korifi marketplace:"
 cf marketplace
 # Expected: the service is listed by this command
-echo ""
-echo "Show details of $SERVICE_NAME"
-cf marketplace -e "$SERVICE_NAME"
+log "$LOG_DBG" "Show details of $SERVICE_NAME:\n$(cf marketplace -e "$SERVICE_NAME")\n"
 
 
 #
 # Creating an instance of myservice
 #
 
-echo ""
-echo "Creating a service instance of myservice..."
+log "$LOG_DBG" "Creating a service instance of myservice..."
 cf create-service "$SERVICE_NAME" shared "${SERVICE_NAME}-instance"
-echo "...done"
-echo ""
+log "$LOG_DBG" "...done\n"
 
 
-echo "Show list of service instances:"
-cf services
-echo ""
+log "$LOG_DBG" "Show list of service instances:\n$(cf services)\n"
 
 #echo "Show info of myservice-instance"
 #cf service ${SERVICE_NAME}-instance
 #echo ""
 
 
-echo "Reaching this point without errors means that we have proofed that creating service instances via a service broker works in korifi"
-echo ""
-echo "End of script."
-echo
+log "$LOG_INF" "
+Reaching this point without errors means that we have proofed that creating service instances via a service broker works in korifi
+
+End of script.
+"
+
 exit
 ###############################################################################
+
+
+
 
 
 ##
