@@ -221,7 +221,7 @@ Demo 4: Show apps per user
 
 function show_all_apps() {
 
-  local orgs rv
+  local orgs
 
   # Get list of orgs
   orgs=$(cf orgs 2>/dev/null | tail -n +4 || true)

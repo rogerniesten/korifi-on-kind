@@ -13,9 +13,16 @@ scriptpath="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 ##
 ## Config
 ##
+
+# logging
+export log_level="$LOG_TRC"
+export show_timestamp=false
+export log_commands_always=true
+
+# korifi
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env.korifi" || die 1 "Config ERROR! Script aborted"      # read config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
@@ -34,9 +41,7 @@ export curl_app_name="curl-tester"
 ##
 ## Check prerequisits
 ##
-
-echo ""
-echo "Check prerequisits..."
+log "$LOG_INF" "Check prerequisits..."
 # Are all required tools available?
 assert jq --version
 assert go version
@@ -62,7 +67,7 @@ assert "kubectl get pods -n korifi | grep Running >/dev/null"
 # Does K8s cluster support Network Policies by Calico?
 assert "kubectl get pods -A -l k8s-app=calico-node"
 
-echo "...done (check prerequisits)"
+log "$LOG_INF" "...done (check prerequisits)"
 
 
 ##
@@ -114,11 +119,6 @@ function get_guid() {
 function get_curl_tester_pod() {
   local namespace="${1?Parameter 'namespace' is missing in call to function 'get_curl_tester_pod'}"
 
-  if [[ -z "$namespace" ]]; then
-    echo "Error: namespace is required." >&2
-    return 1
-  fi
-
   while read -r pod; do
     if kubectl describe pod -n "$namespace" "$pod" | grep -q 'Image:.*curl'; then
       echo "$pod"
@@ -127,8 +127,7 @@ function get_curl_tester_pod() {
   done < <(kubectl get pod -n "$namespace" | grep Running | awk '{print $1}')
 
   # If nothing found, print error and return non-zero
-  echo "Error: No Running pod in namespace '$namespace' has an Image containing 'curl'." >&2
-  return 1
+  die 1 "Error: No Running pod in namespace '$namespace' has an Image containing 'curl'."
 }
 
 
@@ -143,13 +142,13 @@ function curl_in_k8s_pod_and_get_result() {
   # cf target must already be set to required org and space
   # Let op: de test-app moet al gepusht zijn met cf push
 
-  echo "[DEBUG] $info" 					>/dev/tty
+  log "$LOG_INF" "$info"
 
   # find the curl-tester pod in the current namespace
   curl_pod=$(get_curl_tester_pod "$src_namespace")
 
   # exeute curl command in pod
-  echo "[TRACE] kubectl exec -n $src_namespace $curl_pod -- curl --max-time $timeout -s -o /dev/null -w '%{http_code}' $url\""	>/dev/tty
+  log "$LOG_CMD" "kubectl exec -n $src_namespace $curl_pod -- curl --max-time $timeout -s -o /dev/null -w '%{http_code}' $url\""	>/dev/tty
   if RAW_OUTPUT=$(kubectl exec -n "$src_namespace" "$curl_pod" -- curl --max-time "$timeout" -s -o /dev/null -w '%{http_code}' "$url" 2>/dev/null); then
     retval=$?
     echo "SUCCESS ($RAW_OUTPUT)"
@@ -163,7 +162,7 @@ function curl_in_k8s_pod_and_get_result() {
 
 
 function test_connectivity_in_k8s() {
-  echo "[DEBUG] function test_connectivity_in_k8s() - STARTED"
+  log "$LOG_INF" "function test_connectivity_in_k8s() - STARTED"
 
   local space_guid report src_namespace TARGET_URL result report_line app_alias
 
@@ -174,9 +173,9 @@ function test_connectivity_in_k8s() {
   for SRC_ORG in "${!ORG_SPACES[@]}"; do
     for SRC_SPACE in ${ORG_SPACES[$SRC_ORG]}; do
 
-      echo ""
-      echo ""
-      echo "🎯 Test vanaf $SRC_SPACE (org: $SRC_ORG)"
+      log "$LOG_INF" ""
+      log "$LOG_INF" ""
+      log "$LOG_DBG" "🎯 Test (Kubernetes) vanaf $SRC_SPACE (org: $SRC_ORG)"
 
       cf target -o "$SRC_ORG" -s "$SRC_SPACE" >/dev/null
       src_namespace=$(cf space "$SRC_SPACE" --guid)
@@ -184,42 +183,41 @@ function test_connectivity_in_k8s() {
       TARGET_URL="https://google.com"
       result=$(curl_in_k8s_pod_and_get_result "https://google.com" "Testing connectifity from org '$SRC_ORG', space '$SRC_SPACE' to the internet" "$src_namespace")
       report_line="$SRC_ORG $SRC_SPACE INTERNET google.com $result"
-      echo "task result: $report_line"
+      log "$LOG_INF" "Task result: $report_line"
       report+=("$report_line")
 
 
       for TGT_ORG in "${!ORG_SPACES[@]}"; do
-        echo "[DEBUG] Processing target org '$TGT_ORG'"
+        log "$LOG_DBG" "Processing target org '$TGT_ORG'"
         for TGT_SPACE in ${ORG_SPACES[$TGT_ORG]}; do
-          echo "[DEBUG] Processing target space '$TGT_SPACE'"
+          log "$LOG_DBG" "Processing target space '$TGT_SPACE'"
           space_guid=$(get_guid "$TGT_ORG" "$TGT_SPACE")
           app_alias="nginx-$TGT_ORG-$TGT_SPACE"
 
           TARGET_URL="http://${app_alias}.${space_guid}.svc.cluster.local"
-	  echo "[DEBUG] Tesing if direct route can be used: '$SRC_ORG' == '$TGT_ORG' and '$SRC_SPACE' == '$TGT_SPACE'"
+	  log "$LOG_DBG" "Tesing if direct route can be used: '$SRC_ORG' == '$TGT_ORG' and '$SRC_SPACE' == '$TGT_SPACE'"
 	  if [[ "$SRC_ORG" == "$TGT_ORG" && "$SRC_SPACE" == "$TGT_SPACE" ]]; then
-	    echo "[DEBUG] changing URL to direct route"
+	    log "$LOG_DBG" "changing URL to direct route"
             TARGET_URL="http://${app_alias}"
 	  fi
 
-          echo "🔍 $SRC_SPACE → $TGT_SPACE: "
+          log "$LOG_DBG" echo "🔍 $SRC_SPACE → $TGT_SPACE: "
 	  result=$(curl_in_k8s_pod_and_get_result "$TARGET_URL" "Testing connectifity from org '$SRC_ORG', space '$SRC_SPACE' to $TARGET_URL" "$src_namespace")
           report_line="$SRC_ORG $SRC_SPACE $TGT_ORG $TGT_SPACE $result"
-          echo "task result: $report_line"
+          log "$LOG_TRC" "task result: $report_line"
           report+=("$report_line")
         done
       done
     done
   done
 
-  echo ""
-  echo ""
-  echo "Test result of connectivity test"
-  echo "================================"
-  printf "%s\n" "${report[@]}" | column -t
-  echo ""
-  echo ""
-  echo "[DEBUG] function test_connectivity_in_k8s finished"
+  log "$LOG_INF" "
+  Test result of connectivity test
+  ================================
+  $(printf "%s\n" "${report[@]}" | column -t)
+  
+ "
+  log "$LOG_INF" "function test_connectivity_in_k8s finished"
 }
 
 
@@ -235,21 +233,20 @@ function curl_in_runtask() {
   # Let op: de test-app moet al gepusht zijn met cf push
 
   # Start de task
-  echo "[DEBUG] $info"
-  echo "[TRACE] cf run-task $curl_app_name --command \"curl --max-time $timeout -s -o /dev/null -w \\\"%{http_code}\\\" $url\""
+  log "$LOG_INF" "$info"
+  log "$LOG_CMD" "cf run-task $curl_app_name --command \"curl --max-time $timeout -s -o /dev/null -w \\\"%{http_code}\\\" $url\""
   # parameter --name is apparently not valid! So remove it from the commands below!
   RAW_OUTPUT=$(cf run-task "$curl_app_name" --command "curl --max-time $timeout -s -o /dev/null -w \"%{http_code}\" $url" 2>/dev/null)
-  echo "$RAW_OUTPUT"
+  log "$LOG_TRC" "$RAW_OUTPUT"
   TASK_ID=$(echo "$RAW_OUTPUT" | grep -i 'task id:' | awk '{print $3}')
-  echo "[DEBUG] TASK_ID='$TASK_ID'"
+  log "$LOG_DBG"  "TASK_ID='$TASK_ID'"
 
   if [[ -z "${TASK_ID:-}" ]]; then
-    echo "-> ⚠️ kon task niet starten"
-    return 1
+    die 1 "-> ⚠️ kon task niet starten"
   fi
 
   # Get task info
-  echo "[TRACE] cf task $curl_app_name $TASK_ID"
+  log "$LOG_CMD" "cf task $curl_app_name $TASK_ID"
   cf task "$curl_app_name" "$TASK_ID"
 
   # Wacht en haal resultaat op
@@ -265,16 +262,16 @@ function get_task_result() {
   local url=${5:-://}
 
   if [ "$BASH_SUBSHELL" -eq 0 ]; then
-    echo "******** Running in same shell, so test run"		>/dev/tty
+    log "$LOG_TRC" "******** Running in same shell, so test run of function get_task_result()"
   else
-	  echo "******** Running in subshell, so real execution (logging directly to tty)" >/dev/tty
+    log "$LOG_TRC" "******** Running in subshell, so real execution of function get_task_result (logging directly to tty)"
   fi
 
   while true; do
-    echo "cf tasks $curl_app_name | grep $url | head -n 1"	>/dev/tty
+    log "$LOG_CMD" "cf tasks $curl_app_name | grep $url | head -n 1"
     result_line=$(cf tasks "$curl_app_name" | grep "$url" | head -n 1)
     task_id=$(echo "$result_line" | awk '{ print $1 }')
-    echo "$result_line"						>/dev/tty
+    log "$LOG_TRC" "$result_line"
   
     # Check if task_id is a valid number (only digits)
     if [[ "$task_id" =~ ^[0-9]+$ ]]; then
@@ -286,11 +283,11 @@ function get_task_result() {
 
   # Wait until the task is visible (cf task doesn't fail)
   #echo -n "[DEBUG] Waiting for task to be visible"		>/dev/tty
-  echo "[DEBUG] Waiting for task to be visible" >/dev/tty
+  log "$LOG_INF" "Waiting for task to be visible"
   while true; do
-    echo "cf task $curl_app_name $task_id"			>/dev/tty
+    log "$LOG_CMD" "cf task $curl_app_name $task_id"
     task_info=$(cf task "$curl_app_name" "$task_id" 2>/dev/null)
-    echo "$task_info"						>/dev/tty
+    log "$LOG_INF" "$task_info"
   
     if echo "$task_info" | grep -q '^id:'; then
       echo "✓"							>/dev/tty
@@ -302,7 +299,7 @@ function get_task_result() {
   done
 
   # Wait for task to finish (SUCCEEDED or FAILED)
-  echo -n "[DEBUG] Waiting for task to be finished"		>/dev/tty
+  log "$LOG_DBG" "Waiting for task to be finished"		>/dev/tty
   while true; do
     task_state=$(echo "$task_info" | awk -F': *' '/^state:/ {print $2}')
 
@@ -336,9 +333,9 @@ function test_connectivity_in_korifi() {
   for SRC_ORG in "${!ORG_SPACES[@]}"; do
     for SRC_SPACE in ${ORG_SPACES[$SRC_ORG]}; do
 
-      echo ""
-      echo ""
-      echo "🎯 Test vanaf $SRC_SPACE (org: $SRC_ORG)"
+      log "$LOG_INF" ""
+      log "$LOG_INF" ""
+      log "$LOG_DBG" "🎯 Test (Korifi) vanaf $SRC_SPACE (org: $SRC_ORG)"
       cf target -o "$SRC_ORG" -s "$SRC_SPACE" >/dev/null
 
       TARGET_URL="https://google.com"
@@ -351,26 +348,26 @@ function test_connectivity_in_korifi() {
       #echo "[DEBUG] ======== SUBSHELL RUN FOR get_task_result ==================="
       report_line=$(get_task_result "$SRC_ORG" "$SRC_SPACE" "Internet" "google.com" "$TARGET_URL")
       #echo "[DEBUG] ======== RUNS FOR get_task_result DONE ======================"
-      echo "task result: $report_line"
+      log "$LOG_TRC" "task result: $report_line"
       report+=("$report_line")
 
 
       for TGT_ORG in "${!ORG_SPACES[@]}"; do
-	echo "[DEBUG] Processing target org '$TGT_ORG'"
+	log "$LOG_DBG" "Processing target org '$TGT_ORG'"
         for TGT_SPACE in ${ORG_SPACES[$TGT_ORG]}; do
-          echo "[DEBUG] Processing target space '$TGT_SPACE'"
+          log "$LOG_DBG" "Processing target space '$TGT_SPACE'"
           space_guid=$(get_guid "$TGT_ORG" "$TGT_SPACE")
 	  app_alias="nginx-$TGT_ORG-$TGT_SPACE"
 
           TARGET_URL="http://${app_alias}.${space_guid}.svc.cluster.local"
 
-          echo "🔍 $SRC_SPACE → $TGT_SPACE: "
+          log "$LOG_DBG" "🔍 $SRC_SPACE → $TGT_SPACE: "
 	  if ! curl_in_runtask "$TARGET_URL" "Testing connectifity from org '$SRC_ORG', space '$SRC_SPACE' to $TARGET_URL"; then
             report_line="$SRC_ORG $SRC_SPACE $TGT_ORG $TGT_SPACE NOT_STARTED Could not start runtask for curl-tester"
             continue
           fi
 	  report_line=$(get_task_result "$SRC_ORG" "$SRC_SPACE" "$TGT_ORG" "$TGT_SPACE" "$TARGET_URL")
-	  echo "task result: $report_line"
+	  log "$LOG_TRC" "task result: $report_line"
 	  report+=("$report_line")
 
         done
@@ -378,27 +375,25 @@ function test_connectivity_in_korifi() {
     done
   done
 
-  echo ""
-  echo ""
-  echo "Test result of connectivity test"
-  echo "================================"
-  printf "%s\n" "${report[@]}" | column -t
-  echo ""
-  echo ""
-  #echo "[DEBUG] function test_connectivit finished"
+  log "$LOG_INF" "
+  Test result of connectivity test
+  ================================
+  $(printf "%s\n" "${report[@]}" | column -t)
+
+ "
+  log "$LOG_INF" "function test_connectivity_in_k8s finished"
 }
 
 
-
-echo ""
-echo "============================================================"
-echo "Setup environment for this network policy demo"
-echo "============================================================"
-echo ""
+log "$LOG_INF" "
+============================================================
+Setup environment for this network policy demo
+============================================================
+"
 
 ## Create a container image with curl that is compatible with korifi
 build_folder="$tmp/$curl_app_name"
-echo "[INFO ] Create korifi compatible container image for curl"
+log "$LOG_INF" "Create korifi compatible container image for curl"
 mkdir -p "$build_folder"
 cd "$build_folder" || exit
 
@@ -442,21 +437,21 @@ WORKDIR /home/nonrootuser
 CMD ["sleep", "3600"]
 EOF
 
-echo "[TRACE] docker build -t $curl_app_image $build_folder"
+log "$LOG_CMD" "docker build -t $curl_app_image $build_folder"
 docker build -t "$curl_app_image" "$build_folder"
-echo "[TRACE] docker push $curl_app_image"
+log "$LOG_CMD" "docker push $curl_app_image"
 docker push "$curl_app_image"
 
 
 ## Create namespaces (orgs and spaces)
-echo "[INFO ] Create namespaces (orgs and spaces)"
+log "$LOG_INF" "Create namespaces (orgs and spaces)"
 for src_org in "${ALL_ORGS[@]}"; do
   create_org_with_spaces "$src_org"
 done
 
 
 function create_dns_friendly_alias() {
-  echo "[DEBUG] create_dns_friendly_alias( '$1') - START"
+  log "$LOG_DBG" "create_dns_friendly_alias( '$1') - START"
   local app_name=$1
 
   local org space space_guid app_guid
@@ -465,7 +460,7 @@ function create_dns_friendly_alias() {
   space_guid=$(get_guid "$org" "$space")
   app_guid=$(cf app "$app_name" --guid)
 
-  echo "[DEBUG] Applying clusterIP (for $app_guid)"
+  log "$LOG_DBG" "Applying clusterIP (for $app_guid)"
   kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Service
@@ -482,39 +477,39 @@ spec:
     korifi.cloudfoundry.org/app-guid: $app_guid
     korifi.cloudfoundry.org/process-type: web
 EOF
-  echo "[DEBUG] ClusterIP applied"
+  log "$LOG_DBG" "ClusterIP applied"
 }
 
 
 
 ## Create an nginx in each org
-echo "[INFO ] pushing nginx to each org"
+log "$LOG_INF" "pushing nginx to each org"
 nginx_image="index.docker.io/nginxinc/nginx-unprivileged"
 if [[ -n "$LOCAL_IMAGE_REGISTRY_FQDN" ]];then
   nginx_image="${LOCAL_IMAGE_REGISTRY_FQDN}/${nginx_image}"
 fi
 
 ## Create an nginx and a curl tester app in each space
-echo "[INFO ] pushing curl test-app to each space"
+log "$LOG_INF" "pushing curl test-app to each space"
 for src_org in "${ALL_ORGS[@]}"; do
   for src_space in ${ORG_SPACES[$src_org]}; do
     # switch to this org and space
-    echo "[TRACE] cf target -o $src_org -s $src_space"
+    log "$LOG_CMD" "cf target -o $src_org -s $src_space"
     cf target -o "$src_org" -s "$src_space"
 
     # push nginx to this space
     app_name="nginx-$src_org-$src_space"
-    echo "[TRACE] cf push $app_name --docker-image $nginx_image"
+    log "$LOG_CMD" "cf push $app_name --docker-image $nginx_image"
     cf push "$app_name" --docker-image "$nginx_image"
-    echo "[DEBUG] creating dns alias for $app_name"
+    log "$LOG_DBG" "creating dns alias for $app_name"
     create_dns_friendly_alias "$app_name"
 
     # push curl-tester app to this space
-    echo "[TRACE] cf push $curl_app_name --docker-image $curl_app_image --no-route --no-start" 
+    log "$LOG_CMD" "cf push $curl_app_name --docker-image $curl_app_image --no-route --no-start" 
     cf push "$curl_app_name" --docker-image "$curl_app_image" --no-route --no-start
-    echo "[TRACE] cf set-health-check $curl_app_name  process"
+    log "$LOG_CMD" "cf set-health-check $curl_app_name  process"
     cf set-health-check "$curl_app_name"  process
-    echo "[TRACE] cf start $curl_app_name"
+    log "$LOG_CMD" "cf start $curl_app_name"
     cf start "$curl_app_name"
   done
 done
@@ -523,34 +518,31 @@ done
 
 
 
-echo ""
-echo "============================================================"
-echo "Baseline - What is allowed by default and what isn't"
-echo "============================================================"
-echo ""
+log "$LOG_INF" "
+============================================================
+Baseline - What is allowed by default and what isn't
+============================================================
+"
 
 test_connectivity_in_k8s
 test_connectivity_in_korifi
 
 
-#exit 0
-
 
 ##
 ## Demo 1 - Isolation per space
 ## 
-
-echo ""
-echo "============================================================"
-echo "Demo 1 - Isolate spaces with Network Policies"
-echo "============================================================"
-echo ""
+log "$LOG_INF" "
+============================================================
+Demo 1 - Isolate spaces with Network Policies
+============================================================
+"
 
 function isolate_space() {
   local space=$1
 
-  echo "[INFO ]   Create network policies to isolate space '$space'"
-  echo "[DEBUG]   Apply network policy 'allow-same-namespace' for space '$space'"
+  log "$LOG_INF" "Create network policies to isolate space '$space'"
+  log "$LOG_DBG" "Apply network policy 'allow-same-namespace' for space '$space'"
   kubectl apply -f - <<EOF
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -566,7 +558,7 @@ spec:
         - podSelector: {}  # Allow ingress from all pods in the same namespace
 EOF
 
-  echo "[DEBUG]   Apply network policy 'deny-other-namespaces' for space '$space'"
+  log "$LOG_DBG" "Apply network policy 'deny-other-namespaces' for space '$space'"
   kubectl apply -f - <<EOF
 # network-policy-deny-ingress.yaml
 apiVersion: networking.k8s.io/v1
@@ -582,12 +574,12 @@ spec:
 EOF
 }
 
-echo "[INFO ] Isolation all spaces"
+log "$LOG_INF" "Isolation all spaces by name (guid)"
 for src_org in "${ALL_ORGS[@]}"; do
   for src_space in ${ORG_SPACES[$src_org]}; do
 
     # isolate this space
-    echo "[INFO]  Isolate org '$src_org', space '$src_space'"
+    log "$LOG_INF" "Isolate org '$src_org', space '$src_space'"
     isolate_space "$(get_guid "$src_org" "$src_space")"
   done
 done
@@ -595,38 +587,35 @@ done
 # Test isoloation (in kubernetes)
 #kubectl run tester -n 
 
-
 test_connectivity_in_k8s
 test_connectivity_in_korifi
 
 
 
-
-
-echo ""
-echo "============================================================"
-echo "Cleanup"
-echo "============================================================"
-echo ""
+log "$LOG_INF" "
+============================================================
+Cleanup
+============================================================
+"
 
 ## Switching back to admin 
 switch_user "${ADMIN_USERNAME}" >>/dev/null
 
 ## Remove all network policies
-echo "[INFO ] Remove all network policies"
+log "$LOG_INF" "Remove all network policies"
 for src_org in "${ALL_ORGS[@]}"; do
   for src_space in ${ORG_SPACES[$src_org]}; do
 
     # isolate this space
     guid=$(get_guid "$src_org" "$src_space")
-    echo "[DEBUG] Remove network policies for org '$src_org', space '$src_space' ($guid)"
+    log "$LOG_DBG" "Remove network policies for org '$src_org', space '$src_space' ($guid)"
     kubectl delete networkpolicy -n "$guid" deny-other-namespaces
     kubectl delete networkpolicy -n "$guid" allow-same-namespace
   done
 done
 
 
-echo ""
-echo "======== END OF SCRIPT ========"
-echo ""
+log "$LOG_INF" "
+======== END OF SCRIPT ========
+"
 
