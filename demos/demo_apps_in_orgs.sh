@@ -243,7 +243,7 @@ function show_all_apps() {
       fi
  
       # List apps in this space
-      apps=$(cf apps 2>/dev/null | tail -n +4i || true)
+      apps=$(cf apps 2>/dev/null | tail -n +4 || true)
 
      if [ -z "${apps:-}" ]; then
        log "$LOG_INF" "    (No apps found)"
