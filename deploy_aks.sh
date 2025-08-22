@@ -69,9 +69,9 @@ function install_azure_cli() {
   fi
 
   # Add the Azure CLI software repository
-  if ! grep "$AZ_REPO main" /etc/apt/sources.list.d/azure-cli.list; then
+  AZ_REPO=$(lsb_release -cs)
+  if ! grep "$AZ_REPO main" /etc/apt/sources.list.d/azure-cli.list >/dev/null; then
     log "$LOG_DBG" "Prepare AzureCLI installation (Add Azure CLI software repo)"
-    AZ_REPO=$(lsb_release -cs)
     echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $AZ_REPO main" | \
       $SUDOCMD tee /etc/apt/sources.list.d/azure-cli.list
   fi
