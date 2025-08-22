@@ -13,12 +13,6 @@
 ##
 ## Config
 ##
-
-# logging
-export log_level="$LOG_TRC"
-export show_timestamp=false
-export log_commands_always=true
-
 # korifi
 K8S_TYPE=AKS								# type: KIND, AKS
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
