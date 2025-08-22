@@ -31,10 +31,35 @@ export LOG_TR5=5
 export LOG_CMD=6
 export LOG_ALL=9
 export log_level="$LOG_INF"
-export log_level_to_file="$LOG_INF"
+export log_level_to_file="$LOG_TRC"
 export log_commands_always=false
 export show_timestamp=false
 export logfile=""
+
+
+#==== function to process args to set modular variables ========================
+# Function to parse arguments
+logging_parse_args() {
+  echo "*** PARSING PROG ARGS IN logging.sh ($@)"
+
+  # parse script arguments and take appriate action
+  while [[ $# -gt 0 ]]; do
+    echo -n "$#($1).."
+    case "$1" in
+      -l|--loglevel) 		setloglevel "$2";	echo "handled -l $2";	shift 2;;
+      -c|--always-log-command)	log_commands_always=true echo "handled -c";	shift ;;
+      --logfile)		set_logfile "$2";	echo "handled -l $2";	shift 2 ;;
+      --logfile=*)		set_logfile "${1#*=}"	echo "handled -l=$2";	shift ;;
+      -t|--show-timestamp)	show_timestamp=true;	echo "handled -t";	shift ;;
+      -v|--verbose)		setloglevel '+';	echo "handled -v";	shift ;;
+      --)			break; 			echo "stop parsing";	shift ;;
+      *)						echo "ignore $1";	shift ;;
+    esac
+  done
+
+#?<  # Export vars
+#?<  export LOGLEVEL LOGFILE SHOW_TIMESTAMPS
+}
 
 
 #==== functions ===============================================================
@@ -246,7 +271,7 @@ function set_logfile() {
 # Author:  R. Niesten 03-02-2023
 #
 function setloglevel() {
-  local __loglevel="${2?Param 'loglevel' in call to function 'setloglevel()' is missing}"
+  local __loglevel="${1?Param 'loglevel' in call to function 'setloglevel()' is missing}"
 
   if [ -n "$__loglevel" ]; then
     case $__loglevel in
@@ -367,4 +392,11 @@ cleanup() {
     log "$LOG_TR5" "temp-folder '$TMP_DIR' doesn't exist anymore, nothing to cleanup."
   fi
 }
+
+
+#======== Parse script's arguments =============================================
+# If sourced in another script, parse its "$@"
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  logging_parse_args "$@"
+fi
 
