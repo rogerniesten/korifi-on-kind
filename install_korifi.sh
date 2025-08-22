@@ -223,7 +223,7 @@ assert "kubectl config get-clusters | grep ${K8S_CLUSTER_KORIFI}"
 
 
 # Namespace creation (TODO: namespaces seem already to be existing, so these command seem to be superfluous and can be removed)
-log "$LOG_INF" "Namespace creation"
+log "$LOG_INF" "Create required namespaces"
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Namespace

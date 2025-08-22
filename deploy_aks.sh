@@ -58,23 +58,25 @@ install_if_missing apt package gnupg
 ##
 function install_azure_cli() {
 
-  log "$LOG_INF" "Install Azure CLI..."
+  log "$LOG_DBG" "Install Azure CLI..."
 
   # Download and install the Microsoft signing key
-  log "$LOG_TRC" " - Download and install Microsoft signing key"
-  curl -sL https://packages.microsoft.com/keys/microsoft.asc | \
-    gpg --dearmor | \
-    $SUDOCMD tee /etc/apt/trusted.gpg.d/microsoft.gpg > /dev/null
+  if [[ ! -f /etc/apt/trusted.gpg.d/microsoft.gpg ]]; then
+    log "$LOG_DBG" "Prepare AzureCLI installation (Download and install Microsoft signing key)"
+    curl -sL https://packages.microsoft.com/keys/microsoft.asc | \
+      gpg --dearmor | \
+      $SUDOCMD tee /etc/apt/trusted.gpg.d/microsoft.gpg > /dev/null
+  fi
 
   # Add the Azure CLI software repository
-  log "$LOG_TRC" " - Add Azure CLI software repo"
-  AZ_REPO=$(lsb_release -cs)
-  echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $AZ_REPO main" | \
-    $SUDOCMD tee /etc/apt/sources.list.d/azure-cli.list
+  if ! grep "$AZ_REPO main" /etc/apt/sources.list.d/azure-cli.list; then
+    log "$LOG_DBG" "Prepare AzureCLI installation (Add Azure CLI software repo)"
+    AZ_REPO=$(lsb_release -cs)
+    echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $AZ_REPO main" | \
+      $SUDOCMD tee /etc/apt/sources.list.d/azure-cli.list
+  fi
 
   install_if_missing apt az azure-cli "az version"
-
-  log "$LOG_INF" "...done"
 }
 
 # TODO: Enable this command as soon as the AKS will be deployed in Azure in scope of this script
@@ -153,7 +155,7 @@ function login_to_azure() {
 
 
 if az account show > /dev/null 2>&1 ; then
-  log "$LOG_DBG" "Already logged in to Azure."
+  log "$LOG_DBG" "Already logged in to Azure, so no need to login explicitly."
 else
   log "$LOG_WRN" "Not logged in to Azure yet, let's login now."
   login_to_azure
@@ -187,7 +189,7 @@ function install_azure_kubernetes_cluster() {
   local my_ip aks_guid
   local aks_template="${CFG_PATH}/aks_deployment.json"
   local aks_parameters="${CFG_PATH}/aks_parameters.json"
-  my_ip=$(curl ifconfig.me)
+  my_ip=$(curl -s ifconfig.me)
   aks_guid=$(uuidgen)
 
   log "$LOG_INF" "Deploy Azure Kubernetes Service Cluster '$aks_name' ($(date))"

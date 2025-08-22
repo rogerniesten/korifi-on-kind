@@ -80,7 +80,7 @@ function get_version_levels() {
 }
 
 function assert() {
-  log "$LOG_DBG" "asserting command: '$*'"
+  log "$LOG_TRC" "asserting command: '$*'"
   bash -c "$*" || {
     local result=$?
     die $result "$LOG_ERR" "Command '$*' FAILED!"
