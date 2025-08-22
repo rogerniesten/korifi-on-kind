@@ -20,7 +20,7 @@ export log_commands_always=true
 # korifi
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env_korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 KORIFI_GATEWAY_NAMESPACE=korifi-gateway
 
 # Script should be executed as root (just sudo fails for some commands)
@@ -319,8 +319,8 @@ function install_contour_gateway_static() {
                . != "--contour-key-file=/certs/tls.key"))' "${src_dir}/03-contour.yaml"
 
  
-  log "$LOG_INF" "Creating namespace $namespace (if it does not exist)..."
-  log "$LOG_CMD" "kubectl get namespace $namespace \>/dev/null 2\>&1 \|\| kubectl create namespace \"$namespace"
+  log "$LOG_INF" "Ensure namespace $namespace (exists)"
+  log "$LOG_CMD" "kubectl get namespace $namespace >/dev/null 2\>&1 || kubectl create namespace $namespace"
   kubectl get namespace "$namespace" >/dev/null 2>&1 || kubectl create namespace "$namespace"
 
   create_cert_secrets_for_contour
@@ -471,6 +471,7 @@ fi
 
 params=(
     --set=generateIngressCertificates=true
+    --set=generateInternalCertificates=true					# More info on certs: https://github.com/cloudfoundry/korifi/blob/v0.16.0/INSTALL.md#tls-certificates
     --set=rootNamespace="$ROOT_NAMESPACE"
     --set=adminUserName="$ADMIN_USERNAME"
     --set=api.apiServer.url="$CF_API_DOMAIN"
@@ -500,8 +501,8 @@ params=(
 )
 
 log "$LOG_CMD" "helm upgrade --install korifi https://github.com/cloudfoundry/korifi/releases/download/v${KORIFI_VERSION}/korifi-${KORIFI_VERSION}.tgz \\
-    --namespace=$KORIFI_NAMESPACE
-    ${params[*]}
+    --namespace=$KORIFI_NAMESPACE \\
+    ${params[*]} \\
     --wait"
 
 helm upgrade --install korifi \

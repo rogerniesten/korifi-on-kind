@@ -13,23 +13,31 @@
 ##
 ## Config
 ##
+# korifi
 prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 K8S_TYPE=${K8S_TYPE:-AKS}			# env requires this var, but this script doesn't, so any value is fine
 K8S_CLUSTER_KORIFI=${K8S_CLUSTER_KORIFI:-dummy}	# env requires this var, but this script doesn't, so any value is fine
-. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env_korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
 
+echo "SCRIPT PARSING ARGS:"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--cluster-type) K8S_TYPE="$2";           echo "handled -t $2";   shift 2 ;;
+    --)                break;                   echo "stop parsing";    shift   ;;
+    *)                                          echo "ignore $1";       shift   ;;
+  esac
+done
+exit
 
 ##
 ## Installing required tools
 ##
-
-echo ""
-echo ""
-echo "---------------------------------------"
-echo "Installing required tools"
-echo "---------------------------------------"
-echo ""
+log "$LOG_INF" "
+---------------------------------------
+Installing required tools
+---------------------------------------
+"
 
 ## GPG keys and repo sources are added in .env
 
@@ -50,23 +58,22 @@ prompt_if_missing LOCAL_IMAGE_REGISTRY "var" "Name of local Image Registry in Az
 ##
 
 function publish_image_registry() {
-  echo "[INFO ] Make registry in docker publicly available"
+  log "$LOG_INF" "Make registry in docker publicly available"
   # get name of resource group
-  echo "[DEBUG] - get name of resource group"
+  log "$LOG_DBG" " - get name of resource group"
   az_resource_group=$(az vm list --query "[?name=='$(hostname)'].resourceGroup" -o tsv)
   # get the name of the network interface
-  echo "[DEBUG] - get name of network interface"
+  log "$LOG_DBG" " - get name of network interface"
   az_network_interface_id=$(az vm show --resource-group "$az_resource_group" --name "$(hostname)" --query "networkProfile.networkInterfaces[0].id" -o tsv)
   # get the public IP resource ID
-  echo "[DEBUG] - publicIP resource ID"
+  log "$LOG_DBG" " - publicIP resource ID"
   az_public_ip_resource_id=$(az network nic show --ids $az_network_interface_id --query "ipConfigurations[0].publicIPAddress.id" -o tsv)
   # set a domain name
-  echo "[DEBUG] - set domain name"
+  log "$LOG_DBG" " - set domain name"
   az network public-ip update --ids $az_public_ip_resource_id --dns-name "$LOCAL_IMAGE_REGISTRY"
   # verify
   registry_fqdn=$(az network public-ip show --ids $az_public_ip_resource_id --query "dnsSettings.fqdn" -o tsv)
-  echo "[INFO ] Image registry accessible as: $registry_fqdn:5000"
-  echo ""
+  log "$LOG_INF" "Image registry accessible as: $registry_fqdn:5000\n"
 
   export LOCAL_IMAGE_REGISTRY_FQDN="$registry_fqdn"
   save_env_var "LOCAL_IMAGE_REGISTRY_FQDN" "$registry_fqdn" "$AZ_ENV_FILE"
@@ -74,13 +81,14 @@ function publish_image_registry() {
 
 function configure_nginx() {
 
+  log "$LOG_DBG" "Configuring nginx in pod"
   # increase bucket size to support long urls
   sudo sed -i 's/server_names_hash_bucket_size .*/server_names_hash_bucket_size 128;/g'		/etc/nginx/nginx.conf
   sudo sed -i 's/\# server_names_hash_bucket_size .*/server_names_hash_bucket_size 128;/g'	/etc/nginx/nginx.conf
   # server_names_hash_bucket_size
 
   # optain the required SSL certificate
-  echo -e "sudo certbot certonly \\
+  log "$LOG_CMD" "sudo certbot certonly \\
           --standalone \\
           --non-interactive \\
           --agree-tos \\
@@ -94,7 +102,7 @@ function configure_nginx() {
           -d "${LOCAL_IMAGE_REGISTRY_FQDN}"
 
   # add nginx configfile for image registry in docker
-  echo -n "[TRACE] sudo tee /etc/nginx/sites-available/docker-registry > /dev/null <<EOF ..."
+  log "$LOG_TRC" "sudo tee /etc/nginx/sites-available/docker-registry > /dev/null <<EOF ..."
   sudo tee /etc/nginx/sites-available/docker-registry > /dev/null <<EOF
 server {
     listen 443 ssl;
@@ -128,7 +136,7 @@ server {
     }
 }
 EOF
-  echo "..done"
+  log "$LOG_TRC" "..done"
 
   # Enable the config
   if [[ ! -d /etc/nginx/sites-enabled/ ]]; then
@@ -144,27 +152,24 @@ EOF
 ##
 local_registry_container=$($SUDOCMD docker ps -a --filter name=registry --format '{{.Names}} {{.Status}}' | head -n1)
 
-echo "[DEBUG] Found following registry container in docker:"
-echo "${local_registry_container:-<none>}"
+log "$LOG_DBG" "Found following registry container in docker:\n${local_registry_container:-<none>}"
 
 if [[ -z "${local_registry_container:-}" ]]; then
   # start local registry container in Docker
-  echo "[INFO ] Start docker container 'registry'"
+  log "$LOG_INF" "Start docker container 'registry'"
   $SUDOCMD docker run -d -p 5000:5000 --name registry registry:2
 elif [[ "$local_registry_container" != *"Up "* ]]; then
   # restart container if not running
-  echo "[INFO ] Restarting non-running container."
+  log "$LOG_INF" "Restarting non-running container."
   echo $local_registry_container
   # now remove it
   $SUDOCMD docker restart registry
 else
-  echo "[INFO ] Registry container is already running"
+  log "$LOG_INF" "Registry container is already running"
 fi
 
 # Show result
-echo "[DeBUG] Current containers in docker:"
-$SUDOCMD docker ps -a
-echo "---"
+log "$LOG_DBG" "Current containers in docker:\n$($SUDOCMD docker ps -a)\n---"
 
 publish_image_registry
 configure_nginx
@@ -179,15 +184,15 @@ function copy_image_to_local_registry() {
   local target_registry=${2:-$LOCAL_IMAGE_REGISTRY_FQDN}
   target_registry=localhost:5000	# this doesn't use the internet, but pushes directly to the registry on localhost, which is way faster!
 
-  echo "[TRACE] $SUDOCMD docker pull $image"
+  log "$LOG_CMD" "$SUDOCMD docker pull $image"
   $SUDOCMD docker pull "$image"			# pull the image from docker hub
-  echo "{TRACE] $SUDOCMD docker tag $image ${target_registry}/${image}"
+  log "$LOG_CMD" "$SUDOCMD docker tag $image ${target_registry}/${image}"
   $SUDOCMD docker tag "$image" "${target_registry}/${image}"	# tag the image
-  echo "[TRACE] $SUDOCMD docker push ${target_registry}/${image}"
+  log "$LOG_CMD" "$SUDOCMD docker push ${target_registry}/${image}"
   $SUDOCMD docker push "${target_registry}/${image}"		# push the image to the local hub
 
   # remove the images (from remote and from local)
-#  echo "$SUDOCMD docker image rm $image"
+#  log "$LOG_CMD" "$SUDOCMD docker image rm $image"
 #  $SUDOCMD docker image rm "$image"
 #  $SUDOCMD docker image rm "${target_registry}/${image}"
   echo "---------------------"
@@ -258,8 +263,8 @@ copy_image_to_local_registry index.docker.io/nginxinc/nginx-unprivileged
 #
 # End message
 #
-echo ""
-echo "======== End of Script ========"
-echo ""
-echo ""
+log "$LOG_INF" "
+======== End of Script ========
+
+"
 

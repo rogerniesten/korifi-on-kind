@@ -14,7 +14,7 @@
 ##
 export K8S_TYPE=KIND     					# type: KIND, AKS
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. "$ENV_PATH/.env.korifi" || { echo "Config ERROR! Script aborted"; exit 1; }   # read korifi config from environment file
+. "$ENV_PATH/.env_korifi" || { echo "Config ERROR! Script aborted"; exit 1; }   # read korifi config from environment file
 
 read -r -p "Press enter to continue or CTRL-C to abort"
 

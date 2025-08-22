@@ -22,7 +22,7 @@ export log_commands_always=true
 # korifi
 K8S_TYPE=AKS								# type: KIND, AKS
 prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
-. "$ENV_PATH/.env.korifi" || die 1 "Config ERROR! Script aborted"	# read korifi config from environment file
+. "$ENV_PATH/.env_korifi" || die 1 "Config ERROR! Script aborted"	# read korifi config from environment file
 
 # Script should be executed as root (just sudo fails for some commands)
 strongly_advice_root
