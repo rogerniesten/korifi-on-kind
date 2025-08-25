@@ -28,7 +28,7 @@ while [[ $# -gt 0 ]]; do
     *)                                          echo "ignore $1";       shift   ;;
   esac
 done
-exit
+
 
 ##
 ## Installing required tools
