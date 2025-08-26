@@ -30,36 +30,11 @@ export LOG_TRC=4
 export LOG_TR5=5
 export LOG_CMD=6
 export LOG_ALL=9
-export log_level="$LOG_INF"
-export log_level_to_file="$LOG_TRC"
-export log_commands_always=false
-export show_timestamp=false
+export log_level="${log_level:-LOG_INF}"
+export log_level_to_file="${log_level_to_file:-LOG_TRC}"
+export log_always_commands=${log_always_commands:-false}
+export show_timestamps=${show_timestamps:-false}
 export logfile=""
-
-
-#==== function to process args to set modular variables ========================
-# Function to parse arguments
-logging_parse_args() {
-  echo "*** PARSING PROG ARGS IN logging.sh ($@)"
-
-  # parse script arguments and take appriate action
-  while [[ $# -gt 0 ]]; do
-    echo -n "$#($1).."
-    case "$1" in
-      -l|--loglevel) 		setloglevel "$2";	echo "handled -l $2";	shift 2;;
-      -c|--always-log-command)	log_commands_always=true echo "handled -c";	shift ;;
-      --logfile)		set_logfile "$2";	echo "handled -l $2";	shift 2 ;;
-      --logfile=*)		set_logfile "${1#*=}"	echo "handled -l=$2";	shift ;;
-      -t|--show-timestamp)	show_timestamp=true;	echo "handled -t";	shift ;;
-      -v|--verbose)		setloglevel '+';	echo "handled -v";	shift ;;
-      --)			break; 			echo "stop parsing";	shift ;;
-      *)						echo "ignore $1";	shift ;;
-    esac
-  done
-
-#?<  # Export vars
-#?<  export LOGLEVEL LOGFILE SHOW_TIMESTAMPS
-}
 
 
 #==== functions ===============================================================
@@ -111,9 +86,9 @@ function log () {
 #          If on the actual console, it will show the log entries in colors.
 #          Some helper function/variables to tweak the output
 #          - log_level (func setloglevel()) to set the max log level to be printed
-#          - log_commands_always=true to always print log entries of the $LOG_CMD regardless
+#          - log_always_commands=true to always print log entries of the $LOG_CMD regardless
 #            of the set log_level
-#          - show_timestamp=true to prepend a timestamp to the log entry
+#          - show_timestamps=true to prepend a timestamp to the log entry
 #          Please note that in case this function can't write to the console, it will write 
 #          the log entry to the logfile (and will auto-create a logfile if not defined yet)
 #
@@ -133,7 +108,7 @@ function log_to_console(){
 
   if [[ "$level" -le "$log_level" ]]; then
     print_to_tty=true
-  elif [[ "$level" -eq "$LOG_CMD" && "$log_commands_always" == "true" ]]; then
+  elif [[ "$level" -eq "$LOG_CMD" && "$log_always_commands" == "true" ]]; then
     print_to_tty=true
   fi
 
@@ -164,7 +139,7 @@ function log_to_console(){
     defaultcolor=''
   fi
 
-  if [[ "$show_timestamp" == "true" ]]; then
+  if [[ "$show_timestamps" == "true" ]]; then
     timestamp="$(date '+%F %T') "
   fi
 
@@ -201,9 +176,9 @@ function log_to_console(){
 #          If no logfile is specified, no action will be taken.
 #          Some helper function/variables to tweak the output
 #          - log_level (func setloglevel()) to set the max log level to be printed
-#          - log_commands_always=true to always print log entries of the $LOG_CMD regardless
+#          - log_always_commands=true to always print log entries of the $LOG_CMD regardless
 #            of the set log_level
-#          - show_timestamp=true to prepend a timestamp to the log entry
+#          - show_timestamps=true to prepend a timestamp to the log entry (always for entries to file)
 #          - logfile to specify the name and path of the logfile
 #
 #          Please note that in case this function can't write to the console, it will write
@@ -223,7 +198,7 @@ function log_to_file(){
   if [[ -n "${logfile:-}" ]]; then
     if [[ "$level" -le "$log_level" ]]; then
       print_to_file=true
-    elif [[ "$level" -eq "$LOG_CMD" && "$log_commands_always" == "true" ]]; then
+    elif [[ "$level" -eq "$LOG_CMD" && "$log_always_commands" == "true" ]]; then
       print_to_file=true
     fi
   fi
@@ -394,9 +369,55 @@ cleanup() {
 }
 
 
-#======== Parse script's arguments =============================================
-# If sourced in another script, parse its "$@"
-if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
-  logging_parse_args "$@"
-fi
 
+#==== function to process args to set modular variables ========================
+
+#
+# Usage:   logging__parse_arg
+#
+# Purpose: parses the provide argument (potentially including values) and returns the number of items
+#          it has consumed ('--switch is 1 item, '-key value' is 2 items)
+#
+# Return values:
+#	   0 - arg was parsed
+#	   1 - arg was not a logging arg, so nothing is processed
+#         >1 - failure while processing an arg
+#
+# Author:  R. Niesten
+#
+logging__parse_arg() {
+  local arg="$1"
+  local val="${2:-}"
+  
+  case "$arg" in
+    -l|--loglevel)            setloglevel "$val";       log "$LOG_TR5" "handled '-l $val' in logging library";		echo 2;  ;;
+    --loglevel=*)             setloglevel "${arg#*=}";  log "$LOG_TR5" "handled '-l=${arg#*=}' in logging library";	echo 1;  ;;
+    -c|--log-always-commands) log_always_commands=true; log "$LOG_TR5" "handled '-c' in logging library";       	echo 1;  ;;
+    -f|--logfile)             set_logfile "$val";       log "$LOG_TR5" "handled '-f $val' in logging library";    	echo 2;  ;;
+    --logfile=*)              set_logfile "${arg#*=}"   log "$LOG_TR5" "handled '-f=${arg#*=}' in logging library";	echo 1;  ;;
+    -t|--show-timestamps)     show_timestamps=true;   log "$LOG_TR5" "handled '-t' in logging library";            	echo 1;  ;;
+    -v|--verbose)             setloglevel '+';        log "$LOG_TR5" "handled '-v' in logging library";            	echo 1;  ;;
+    *)                                                log "$LOG_TR5" "ignored '$arg' in logging library";		echo 0;  return 1 ;; # arg is not for logging library
+  esac
+}
+
+logging__get_args() {
+  echo " [ logging-args ]"
+}
+
+logging__show_args_desc() {
+  local indent="${1:-2}"
+  local pad=$(printf '%*s' "$indent")
+
+  echo "
+${pad}Logging-args:
+${pad}  -c|--loglevel <level>;    one of: LOG_ERR, LOG_WRN, LOG_INF, LOG_DBG, LOG_TRC, LOG_TR5, LOG_CMD, LOG_ALL
+${pad}                            of a number between 0 (LOG_ERR)  and 6 (LOG_CMD).
+${pad}                            All log entry up to the specified level will be displayed on the console.
+${pad}                            LOG_ALL will display all entries.
+${pad}  -v|--verbose;             Increases current log level by 1
+${pad}  -f|--logfile=<filename>;  path and filename of logfile
+${pad}  -c|--log-always-commands; when set, command (LOG_CMD) will be logged in screen regardless specified log level
+${pad}  -t|--show-timestamps;     log entries on screen are prepended with the timestamp of the entry
+"
+}
