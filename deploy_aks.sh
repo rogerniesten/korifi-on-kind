@@ -27,10 +27,9 @@ Install a AKS (Azure Kubernetes Service) Cluster.
 
 Syntax:
 
-  $0 [-T|--cluster-type <AKS|KIND>] [-C|--cluster-name <name>] $(logging__get_args) [-h|--help]
+  $0 [-C|--cluster-name <name>] $(logging__get_args) [-h|--help]
 
 Parameters:
-  -T|--cluster-type; AKS or KIND
   -C|--cluster-name; Name of the K8s cluster to be used/created for Korifi. This arg overrules 
                      environment variable K8S_CLUSTER_KORIFI
   -h|--help;         Show this syntax info
@@ -51,7 +50,6 @@ while [[ $# -gt 0 ]]; do
   # Parse script specific args
   case "$1" in
     -h|--help)		syntax ;;
-    -T|--cluster-type)	K8S_TYPE="$2";			log "$LOG_TR5" "handled -T $2";	shift 2 ;;
     -C|--cluster-name)	K8S_CLUSTER_KORIFI="$2";	log "$LOG_TR5" "handled -C $2";	shift 2 ;;
     --)			break;				log "$LOG_TR5" "stop parsing";	shift ;;
     *)  syntax "ERROR: Invalid arg $1" ;;

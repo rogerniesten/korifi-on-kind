@@ -11,23 +11,60 @@
 
 
 ##
+## Script argument parsing and syntax message
+##
+
+function syntax(){
+  local msg="${1:-}"
+  local rv=0
+
+  if [[ -n "$msg" ]]; then
+    echo -e "\n$msg"
+    rv=1
+  fi
+  echo "
+Create a local docker image registry and push all required container images to this registry.
+Purpose of this image registry is to simulate a 'closed' Korifi environment where no images can
+be pulled from public image registries.
+
+Syntax:
+
+  $0 [-T|--cluster-type <AKS|KIND>] [-C|--cluster-name <name>] $(logging__get_args) [-h|--help]
+
+Parameters:
+  -h|--help;         Show this syntax info
+$(logging__show_args_desc)
+"
+  exit "$rv"
+}
+
+log "$LOG_TR5" "*** Parsing args in $0 ($*)"
+while [[ $# -gt 0 ]]; do
+
+  # Pas current arg to logging library if it wants to process it
+  if logging__parse_arg "$@"; then
+    shift $__LOGGING__ARGS_CONSUMED     # logging__parse_args tells us how many args to consume
+    continue
+  fi
+
+  # Parse script specific args
+  case "$1" in
+    -h|--help)          syntax ;;
+    --)                 break;                          log "$LOG_TR5" "stop parsing";  shift ;;
+    *)  syntax "ERROR: Invalid arg $1" ;;
+  esac
+done
+
+
+
+##
 ## Config
 ##
 # korifi
-prompt_if_missing K8S_TYPE "var" "Which K8S type to use? (KIND, AKS)"
-prompt_if_missing K8S_CLUSTER_KORIFI "var" "Name of K8S Cluster for Korifi"
 K8S_TYPE=${K8S_TYPE:-AKS}			# env requires this var, but this script doesn't, so any value is fine
 K8S_CLUSTER_KORIFI=${K8S_CLUSTER_KORIFI:-dummy}	# env requires this var, but this script doesn't, so any value is fine
-. "$ENV_PATH/.env_korifi" || { echo "Config ERROR! Script aborted"; exit 1; }      # read config from environment file
+. "$ENV_PATH/.env_korifi" || die 1 "Config ERROR! Script aborted"      # read config from environment file
 
-echo "SCRIPT PARSING ARGS:"
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -t|--cluster-type) K8S_TYPE="$2";           echo "handled -t $2";   shift 2 ;;
-    --)                break;                   echo "stop parsing";    shift   ;;
-    *)                                          echo "ignore $1";       shift   ;;
-  esac
-done
 
 
 ##

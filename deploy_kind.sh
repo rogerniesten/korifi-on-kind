@@ -10,6 +10,54 @@
 
 
 ##
+## Script argument parsing and syntax message
+##
+
+function syntax(){
+  local msg="${1:-}"
+  local rv=0
+
+  if [[ -n "$msg" ]]; then
+    echo -e "\n$msg"
+    rv=1
+  fi
+  echo "
+Install a KIND (Kubernetes IN Docker) Cluster.
+
+Syntax:
+
+  $0 [-C|--cluster-name <name>] $(logging__get_args) [-h|--help]
+
+Parameters:
+  -C|--cluster-name; Name of the K8s cluster to be used/created for Korifi. This arg overrules
+                     environment variable K8S_CLUSTER_KORIFI
+  -h|--help;         Show this syntax info
+$(logging__show_args_desc)
+"
+  exit "$rv"
+}
+
+log "$LOG_TR5" "*** Parsing args in $0 ($*)"
+while [[ $# -gt 0 ]]; do
+
+  # Pas current arg to logging library if it wants to process it
+  if logging__parse_arg "$@"; then
+    shift $__LOGGING__ARGS_CONSUMED     # logging__parse_args tells us how many args to consume
+    continue
+  fi
+
+  # Parse script specific args
+  case "$1" in
+    -h|--help)          syntax ;;
+    -C|--cluster-name)  K8S_CLUSTER_KORIFI="$2";        log "$LOG_TR5" "handled -C $2"; shift 2 ;;
+    --)                 break;                          log "$LOG_TR5" "stop parsing";  shift ;;
+    *)  syntax "ERROR: Invalid arg $1" ;;
+  esac
+done
+
+
+
+##
 ## Config
 ##
 export K8S_TYPE=KIND                                                            # type: KIND, AKS
