@@ -43,8 +43,8 @@ log "$LOG_TR5" "*** Parsing args in $0 ($*)"
 while [[ $# -gt 0 ]]; do
 
   # Pas current arg to logging library if it wants to process it
-  if consumed=$(logging__parse_arg "$@"); then
-    shift $consumed # logging__parse_args tells us how many args to consume
+  if logging__parse_arg "$@"; then
+    shift $__LOGGING__ARGS_CONSUMED	# logging__parse_args tells us how many args to consume
     continue
   fi
 

@@ -376,7 +376,7 @@ cleanup() {
 # Usage:   logging__parse_arg
 #
 # Purpose: parses the provide argument (potentially including values) and returns the number of items
-#          it has consumed ('--switch is 1 item, '-key value' is 2 items)
+#          it has consumed via global variable __LOGGING__ARTS_CONSUMED('--switch is 1 item, '-key value' is 2 items)
 #
 # Return values:
 #	   0 - arg was parsed
@@ -388,16 +388,21 @@ cleanup() {
 logging__parse_arg() {
   local arg="$1"
   local val="${2:-}"
+  __LOGGING__ARGS_CONSUMED=0
+
+  if (( BASH_SUBSHELL > 0 )); then
+    die "Function logging__parse_arg() must be called in the main shell, not in a subshell)"
+  fi
   
   case "$arg" in
-    -l|--loglevel)            setloglevel "$val";       log "$LOG_TR5" "handled '-l $val' in logging library";		echo 2;  ;;
-    --loglevel=*)             setloglevel "${arg#*=}";  log "$LOG_TR5" "handled '-l=${arg#*=}' in logging library";	echo 1;  ;;
-    -c|--log-always-commands) log_always_commands=true; log "$LOG_TR5" "handled '-c' in logging library";       	echo 1;  ;;
-    -f|--logfile)             set_logfile "$val";       log "$LOG_TR5" "handled '-f $val' in logging library";    	echo 2;  ;;
-    --logfile=*)              set_logfile "${arg#*=}"   log "$LOG_TR5" "handled '-f=${arg#*=}' in logging library";	echo 1;  ;;
-    -t|--show-timestamps)     show_timestamps=true;   log "$LOG_TR5" "handled '-t' in logging library";            	echo 1;  ;;
-    -v|--verbose)             setloglevel '+';        log "$LOG_TR5" "handled '-v' in logging library";            	echo 1;  ;;
-    *)                                                log "$LOG_TR5" "ignored '$arg' in logging library";		echo 0;  return 1 ;; # arg is not for logging library
+    -l|--loglevel)            setloglevel "$val";       log "$LOG_TR5" "handled '-l $val' in logging library";		__LOGGING__ARGS_CONSUMED=2;  ;;
+    --loglevel=*)             setloglevel "${arg#*=}";  log "$LOG_TR5" "handled '-l=${arg#*=}' in logging library";	__LOGGING__ARGS_CONSUMED=1;  ;;
+    -c|--log-always-commands) log_always_commands=true; log "$LOG_TR5" "handled '-c' in logging library";       	__LOGGING__ARGS_CONSUMED=1;  ;;
+    -f|--logfile)             set_logfile "$val";       log "$LOG_TR5" "handled '-f $val' in logging library";    	__LOGGING__ARGS_CONSUMED=2;  ;;
+    --logfile=*)              set_logfile "${arg#*=}"   log "$LOG_TR5" "handled '-f=${arg#*=}' in logging library";	__LOGGING__ARGS_CONSUMED=1;  ;;
+    -t|--show-timestamps)     show_timestamps=true;     log "$LOG_TR5" "handled '-t' in logging library";            	__LOGGING__ARGS_CONSUMED=1;  ;;
+    -v|--verbose)             setloglevel '+';          log "$LOG_TR5" "handled '-v' in logging library";            	__LOGGING__ARGS_CONSUMED=1;  ;;
+    *)                                                  log "$LOG_TR5" "ignored '$arg' in logging library";		return 1 ;; # arg is not for logging library
   esac
 }
 
